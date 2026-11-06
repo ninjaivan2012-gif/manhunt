@@ -1,0 +1,71 @@
+rules_version = '2';
+
+// Paste this whole file into Firebase console → Firestore Database → Rules, then press Publish.
+// It keeps runners' live locations hidden from hunters, and makes tags only work
+// with the secret code shown on the runner's own phone.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function gamePath(code) { return /databases/$(database)/documents/games/$(code); }
+    function playerPath(code, uid) { return /databases/$(database)/documents/games/$(code)/players/$(uid); }
+    function isHost(code) { return get(gamePath(code)).data.hostId == request.auth.uid; }
+    function inGame(code) { return signedIn() && exists(playerPath(code, request.auth.uid)); }
+    function myTeam(code) { return get(playerPath(code, request.auth.uid)).data.team; }
+    function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    match /games/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.hostId == request.auth.uid;
+      // The host controls everything; any player may end a finished game.
+      allow update: if signedIn() && (isHost(code) || (inGame(code) && onlyChanges(['status', 'endedAt', 'winner'])));
+      allow delete: if signedIn() && isHost(code);
+
+      match /players/{pid} {
+        allow read: if signedIn();
+        allow create: if signedIn() && pid == request.auth.uid;
+        allow update: if signedIn() && (
+          isHost(code)
+          // You can mark yourself out (left the border), but never bring yourself back.
+          || (pid == request.auth.uid && onlyChanges(['status']) && request.resource.data.status == 'out')
+          // A hunter can mark a runner caught only together with a valid tag.
+          || (onlyChanges(['status']) && request.resource.data.status == 'caught'
+              && existsAfter(/databases/$(database)/documents/games/$(code)/tags/$(pid)))
+        );
+        allow delete: if signedIn() && (pid == request.auth.uid || isHost(code));
+      }
+
+      match /secrets/{pid} {
+        allow read, write: if signedIn() && pid == request.auth.uid;
+      }
+
+      match /tags/{runnerId} {
+        allow read: if signedIn();
+        allow create: if inGame(code)
+          && myTeam(code) == 'hunter'
+          && request.resource.data.hunterId == request.auth.uid
+          && request.resource.data.secret == get(/databases/$(database)/documents/games/$(code)/secrets/$(runnerId)).data.secret;
+        allow delete: if signedIn() && isHost(code);
+      }
+
+      match /teams/{team}/live/{pid} {
+        allow read: if inGame(code) && myTeam(code) == team;
+        allow write: if inGame(code) && pid == request.auth.uid && myTeam(code) == team;
+        allow delete: if signedIn() && (pid == request.auth.uid || isHost(code));
+      }
+
+      match /teams/{team}/voice/{clipId} {
+        allow read: if inGame(code) && myTeam(code) == team;
+        allow create: if inGame(code) && myTeam(code) == team
+          && request.resource.data.from == request.auth.uid
+          && request.resource.data.audio.size() < 900000;
+      }
+
+      match /pings/{pid} {
+        allow read: if signedIn();
+        allow write: if signedIn() && pid == request.auth.uid;
+        allow delete: if signedIn() && (pid == request.auth.uid || isHost(code));
+      }
+    }
+  }
+}

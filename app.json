@@ -1,25 +1,75 @@
 {
   "expo": {
-    "name": "manhunt",
+    "name": "Manhunt",
     "slug": "manhunt",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#000000",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.yourname.manhunt",
+      "infoPlist": {
+        "UIBackgroundModes": ["location", "audio"],
+        "NSLocationWhenInUseUsageDescription": "Manhunt shows you on the game map and tells the game when you leave the border.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Manhunt keeps tracking your position while your phone is locked in your pocket during a game.",
+        "NSCameraUsageDescription": "Manhunt uses the camera to scan a runner's tag code.",
+        "NSMicrophoneUsageDescription": "Manhunt uses the microphone for the walkie-talkie."
+      }
     },
     "android": {
+      "package": "com.yourname.manhunt",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
+      ],
       "predictiveBackGestureEnabled": false
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Manhunt keeps tracking your position while your phone is locked in your pocket during a game.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Manhunt uses the camera to scan a runner's tag code.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Manhunt uses the microphone for the walkie-talkie."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#B3131B"
+        }
+      ],
+      "expo-font",
+      "expo-dev-client",
+      "@maplibre/maplibre-react-native"
+    ]
   }
 }
