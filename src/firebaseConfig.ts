@@ -1,10 +1,10 @@
-// STEP 2 of the setup guide: paste your own Firebase settings here.
-// Firebase console → Project settings → Your apps → Web app → "firebaseConfig".
+// Firebase project "manhunt-820f1". These values are public identifiers, not passwords:
+// the database is protected by the rules in firestore.rules.
 export const firebaseConfig = {
-  apiKey: 'PASTE_HERE',
-  authDomain: 'PASTE_HERE',
-  projectId: 'PASTE_HERE',
-  storageBucket: 'PASTE_HERE',
-  messagingSenderId: 'PASTE_HERE',
-  appId: 'PASTE_HERE',
+  apiKey: 'AIzaSyCvV9tLjTLLrTVzVBeglSSwAq0DC-eWzCc',
+  authDomain: 'manhunt-820f1.firebaseapp.com',
+  projectId: 'manhunt-820f1',
+  storageBucket: 'manhunt-820f1.firebasestorage.app',
+  messagingSenderId: '485551199910',
+  appId: '1:485551199910:web:5e4eba369d573264b3c667',
 };
