@@ -11,8 +11,8 @@ import { borderAtScale, checkBounds, currentBorder, fmtClock, nextPingAt, nextSh
 import type { LatLng, LivePos, MsgTarget, Ping, Player, Team } from '../game/types';
 import { getNumber } from '../session';
 import { GameMap, type GameMapHandle, type MapMarker } from '../ui/GameMap';
-import { Btn, Chip, Label, Stat } from '../ui/kit';
-import { C, F } from '../ui/theme';
+import { Btn, Chip, Label, Stat, ThemeToggle } from '../ui/kit';
+import { C, F, themed } from '../ui/theme';
 import { useComms } from '../voice/useComms';
 
 const ago = (ms: number) => (ms < 60_000 ? `${Math.floor(ms / 1000)}s ago` : `${fmtClock(ms)} ago`);
@@ -96,12 +96,13 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
       {/* Top HUD */}
       <View style={[st.top, { top: insets.top + 8 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View style={[st.roleChip, team === 'runner' && { borderColor: C.line, backgroundColor: '#000' }]}>
+          <View style={[st.roleChip, team === 'runner' && { borderColor: C.line, backgroundColor: C.bg }]}>
             {headIcon}
             <Text style={[st.roleText, team === 'runner' && { color: C.redSoft }]}>{team === 'hunter' ? 'HUNTER' : 'RUNNER'}{!alive ? ' · OUT' : ''}</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             {isHost && <Btn label="HOST" kind="secondary" style={st.smallBtn} onPress={() => setHostPanel(true)} />}
+            <ThemeToggle />
             <Btn label="◎" kind="secondary" style={[st.smallBtn, { width: 44, paddingHorizontal: 0 }]} onPress={() => myPos && map.current?.centerOn(myPos)} />
           </View>
         </View>
@@ -123,7 +124,7 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
         )}
 
         {team === 'runner' && alive && ph === 'hunt' && untilPing <= 10_000 && (
-          <View style={[st.banner, { borderColor: C.red, backgroundColor: '#160607' }]}>
+          <View style={[st.banner, { borderColor: C.red, backgroundColor: C.selected }]}>
             <View style={{ flex: 1 }}>
               <Text style={st.bannerTitle}>PING INCOMING</Text>
               <Text style={{ color: C.redSoft, fontSize: 12 }}>Hunters will see where you're standing.</Text>
@@ -148,7 +149,7 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
                 accessibilityState={{ checked: comms.muted }}
                 accessibilityLabel="Mute walkie-talkie"
                 onPress={() => comms.setMuted(!comms.muted)}
-                style={[st.iconBtn, comms.muted && { borderColor: C.red, backgroundColor: '#1A0708' }]}
+                style={[st.iconBtn, comms.muted && { borderColor: C.red, backgroundColor: C.selected }]}
               >
                 <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={comms.muted ? C.red : C.redSoft} strokeWidth={1.8}>
                   <Path d="M4 9v6h4l5 4V5L8 9H4z" />
@@ -331,7 +332,7 @@ function ChatPanel(props: {
           const mine = m.from === myId;
           const enemy = m.fromTeam !== team;
           return (
-            <View style={[st.bubble, mine ? st.bubbleMine : null, enemy && { borderColor: C.lineStrong, backgroundColor: '#0E0505' }]}>
+            <View style={[st.bubble, mine ? st.bubbleMine : null, enemy && { borderColor: C.lineStrong, backgroundColor: C.surface }]}>
               <Text style={{ color: C.redDim, fontSize: 11, fontFamily: F.mono }}>
                 {mine ? 'You' : m.fromName} {m.fromTeam === 'hunter' ? '(hunter)' : '(runner)'} → {m.scope === 'direct' && !mine ? 'you' : m.toName}
               </Text>
@@ -347,7 +348,7 @@ function ChatPanel(props: {
           );
         }}
       />
-      <View style={{ borderTopWidth: 1, borderTopColor: C.line, padding: 12, paddingBottom: insets.bottom + 12, gap: 10, backgroundColor: '#070404' }}>
+      <View style={{ borderTopWidth: 1, borderTopColor: C.line, padding: 12, paddingBottom: insets.bottom + 12, gap: 10, backgroundColor: C.surface }}>
         <TargetChips target={props.target} setTarget={props.setTarget} team={team} others={props.others} />
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TextInput
@@ -368,29 +369,29 @@ function ChatPanel(props: {
   );
 }
 
-const st = StyleSheet.create({
+const st = themed(() => StyleSheet.create({
   top: { position: 'absolute', left: 16, right: 16, gap: 10 },
   roleChip: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.lineStrong },
   roleText: { fontFamily: F.display, fontSize: 12, letterSpacing: 2, color: C.red },
-  smallBtn: { height: 40, paddingHorizontal: 12, backgroundColor: '#000' },
+  smallBtn: { height: 40, paddingHorizontal: 12, backgroundColor: C.bg },
   banner: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: C.lineStrong, borderRadius: 14, backgroundColor: C.surface, padding: 12 },
   bannerTitle: { fontFamily: F.display, fontSize: 16, letterSpacing: 1.5, color: C.red },
   bannerClock: { fontFamily: F.monoBold, fontSize: 28, color: C.red },
-  warn: { color: C.redSoft, fontSize: 12, lineHeight: 17, backgroundColor: 'rgba(0,0,0,0.85)', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: C.line },
-  bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 12, gap: 12, backgroundColor: 'rgba(7,4,4,0.94)', borderTopWidth: 1, borderTopColor: C.line, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  warn: { color: C.redSoft, fontSize: 12, lineHeight: 17, backgroundColor: C.sheet, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: C.line },
+  bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 12, gap: 12, backgroundColor: C.sheet, borderTopWidth: 1, borderTopColor: C.line, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
   iconBtn: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
   badge: { position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.fill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   badgeText: { color: C.fillText, fontSize: 10, fontWeight: '700' },
   bubble: { alignSelf: 'flex-start', maxWidth: '85%', borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 10, gap: 4, backgroundColor: C.surface },
-  bubbleMine: { alignSelf: 'flex-end', backgroundColor: '#1A0708', borderColor: C.lineStrong },
+  bubbleMine: { alignSelf: 'flex-end', backgroundColor: C.selected, borderColor: C.lineStrong },
   chatInput: { flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.lineStrong, backgroundColor: C.surface, paddingHorizontal: 12, color: C.white, fontSize: 15 },
   talk: { width: 72, height: 64, borderRadius: 16, borderWidth: 1, borderColor: C.lineStrong, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', gap: 2 },
   bigAction: { flex: 1, height: 64, borderRadius: 16 },
-  oob: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: '#000', borderWidth: 3, borderColor: C.danger, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10 },
+  oob: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: C.bg, borderWidth: 3, borderColor: C.danger, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10 },
   oobTitle: { fontFamily: F.display, fontSize: 34, letterSpacing: 3, color: C.red, textAlign: 'center' },
   oobClock: { fontFamily: F.monoBold, fontSize: 72, color: C.red, marginTop: 16 },
   oobDir: { alignSelf: 'stretch', marginTop: 20, borderWidth: 1, borderColor: C.lineStrong, borderRadius: 16, backgroundColor: C.surface, padding: 16, gap: 4 },
-  resultRow: { flexDirection: 'row', alignItems: 'center', minHeight: 48, borderBottomWidth: 1, borderBottomColor: '#1F0D0E', gap: 10 },
+  resultRow: { flexDirection: 'row', alignItems: 'center', minHeight: 48, borderBottomWidth: 1, borderBottomColor: C.line, gap: 10 },
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modal: { backgroundColor: '#070404', borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderColor: C.line, padding: 20, gap: 12 },
-});
+  modal: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderColor: C.line, padding: 20, gap: 12 },
+}));

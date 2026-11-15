@@ -6,8 +6,8 @@ import { useGame } from '../GameContext';
 import { kickPlayer, setTeam, shuffleTeams, startGame, updateSettings } from '../game/api';
 import { approxRadius } from '../game/geo';
 import type { Player, Settings, Team, VoiceMode } from '../game/types';
-import { Btn, Chip, Label, Stepper } from '../ui/kit';
-import { C, F } from '../ui/theme';
+import { Btn, Chip, Label, Stepper, ThemeToggle } from '../ui/kit';
+import { C, F, themed } from '../ui/theme';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const mins = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
@@ -45,7 +45,7 @@ export function LobbyScreen({ go }: { go: (r: Route) => void }) {
   }
 
   const teamCol = (team: Team, list: Player[]) => (
-    <View style={[st.teamBox, team === 'hunter' && { borderColor: C.lineStrong, backgroundColor: '#0C0606' }]}>
+    <View style={[st.teamBox, team === 'hunter' && { borderColor: C.lineStrong, backgroundColor: C.surface }]}>
       <Text style={[st.teamTitle, team === 'runner' && { color: C.redSoft }]}>{team === 'hunter' ? 'HUNTERS' : 'RUNNERS'} · {list.length}</Text>
       {list.map((p) => (
         <Pressable key={p.id} onPress={() => playerMenu(p)} accessibilityRole={isHost ? 'button' : undefined} style={st.playerRow}>
@@ -69,7 +69,8 @@ export function LobbyScreen({ go }: { go: (r: Route) => void }) {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Btn label="LEAVE" kind="secondary" style={{ height: 40 }} onPress={() =>
             Alert.alert('Leave game?', undefined, [{ text: 'Stay', style: 'cancel' }, { text: 'Leave', style: 'destructive', onPress: leave }])} />
-          <Label>{isHost ? "LOBBY · YOU'RE HOST" : 'LOBBY'}</Label>
+          <Label style={{ flex: 1, textAlign: 'center' }}>{isHost ? "LOBBY · YOU'RE HOST" : 'LOBBY'}</Label>
+          <ThemeToggle />
         </View>
 
         <View style={st.codeBox}>
@@ -140,12 +141,12 @@ export function LobbyScreen({ go }: { go: (r: Route) => void }) {
   );
 }
 
-const st = StyleSheet.create({
-  codeBox: { borderWidth: 1, borderColor: '#3A1A1B', borderRadius: 14, padding: 16, backgroundColor: '#080505', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+const st = themed(() => StyleSheet.create({
+  codeBox: { borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 16, backgroundColor: C.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   code: { fontFamily: F.monoBold, fontSize: 32, letterSpacing: 5, color: C.red },
-  teamBox: { flex: 1, borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 12, gap: 6, backgroundColor: '#070404' },
+  teamBox: { flex: 1, borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 12, gap: 6, backgroundColor: C.surface },
   teamTitle: { fontFamily: F.display, fontSize: 13, letterSpacing: 2, color: C.red, marginBottom: 4 },
-  playerRow: { minHeight: 44, borderRadius: 8, backgroundColor: '#140909', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 8 },
-  avatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#3A1214', alignItems: 'center', justifyContent: 'center' },
-  section: { borderTopWidth: 1, borderTopColor: '#1F0D0E', paddingTop: 14, gap: 8 },
-});
+  playerRow: { minHeight: 44, borderRadius: 8, backgroundColor: C.surface2, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 8 },
+  avatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: C.selected, alignItems: 'center', justifyContent: 'center' },
+  section: { borderTopWidth: 1, borderTopColor: C.line, paddingTop: 14, gap: 8 },
+}));

@@ -6,7 +6,7 @@ import type { Route } from '../../App';
 import { useGame } from '../GameContext';
 import { parseTag, tagRunner } from '../game/api';
 import { Btn, Label } from '../ui/kit';
-import { C, F } from '../ui/theme';
+import { C, F, themed } from '../ui/theme';
 
 type Found = { runnerId: string; secret: string; name: string };
 
@@ -94,10 +94,10 @@ export function TagScreen({ go }: { go: (r: Route) => void }) {
   );
 }
 
-const st = StyleSheet.create({
+const st = themed(() => StyleSheet.create({
   square: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
-  viewfinder: { height: 340, borderRadius: 20, overflow: 'hidden', backgroundColor: '#080606', borderWidth: 1, borderColor: '#1F0D0E', alignItems: 'center', justifyContent: 'center' },
+  viewfinder: { height: 340, borderRadius: 20, overflow: 'hidden', backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
   frame: { position: 'absolute', width: 210, height: 210 },
   corner: { position: 'absolute', width: 36, height: 36, borderColor: C.red },
-  foundBox: { borderWidth: 1, borderColor: C.red, borderRadius: 14, backgroundColor: '#120607', padding: 14, gap: 4 },
-});
+  foundBox: { borderWidth: 1, borderColor: C.red, borderRadius: 14, backgroundColor: C.selected, padding: 14, gap: 4 },
+}));

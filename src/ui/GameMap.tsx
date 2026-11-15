@@ -3,7 +3,7 @@ import React, { forwardRef, useImperativeHandle, useMemo, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { ring } from '../game/geo';
 import type { LatLng, NoGoZone } from '../game/types';
-import { C, F, MAP_STYLE } from './theme';
+import { C, F, mapStyle, themed, useTheme } from './theme';
 
 export type MapMarker = {
   id: string;
@@ -44,6 +44,7 @@ const outsideFC = (border: LatLng[]): GeoJSON.FeatureCollection => ({
 });
 
 export const GameMap = forwardRef<GameMapHandle, Props>(function GameMap(props, ref) {
+  const { mode } = useTheme();
   const camera = useRef<CameraRef>(null);
   useImperativeHandle(ref, () => ({
     centerOn: (p, zoom) => camera.current?.easeTo({ center: [p.lng, p.lat], zoom: zoom ?? 16, duration: 600 }),
@@ -65,7 +66,7 @@ export const GameMap = forwardRef<GameMapHandle, Props>(function GameMap(props, 
   return (
     <Map
       style={StyleSheet.absoluteFill}
-      mapStyle={MAP_STYLE}
+      mapStyle={mapStyle(mode)}
       logo={false}
       attribution
       attributionPosition={{ bottom: 8, left: 8 }}
@@ -79,7 +80,7 @@ export const GameMap = forwardRef<GameMapHandle, Props>(function GameMap(props, 
       <Camera ref={camera} initialViewState={{ center: [props.initialCenter.lng, props.initialCenter.lat], zoom: 15.5 }} />
 
       <GeoJSONSource id="shade" data={shadeFC}>
-        <Layer type="fill" id="shade-fill" style={{ fillColor: '#000000', fillOpacity: 0.55 }} />
+        <Layer type="fill" id="shade-fill" style={{ fillColor: '#000000', fillOpacity: C.shadeOpacity }} />
       </GeoJSONSource>
       <GeoJSONSource id="nogo" data={noGoFC}>
         <Layer type="fill" id="nogo-fill" style={{ fillColor: C.danger, fillOpacity: 0.22 }} />
@@ -118,11 +119,11 @@ export const GameMap = forwardRef<GameMapHandle, Props>(function GameMap(props, 
   );
 });
 
-const st = StyleSheet.create({
+const st = themed(() => StyleSheet.create({
   markerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   diamond: { width: 13, height: 13, transform: [{ rotate: '45deg' }], borderWidth: 2, borderColor: C.red, backgroundColor: C.surface2 },
-  mate: { width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: C.redSoft, backgroundColor: '#000' },
+  mate: { width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: C.redSoft, backgroundColor: C.bg },
   draftDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: C.fillText, borderWidth: 2, borderColor: C.danger },
-  name: { color: C.red, fontSize: 13, fontWeight: '600', textShadowColor: '#000', textShadowRadius: 3 },
-  sub: { color: C.redDim, fontSize: 10, fontFamily: F.mono, textShadowColor: '#000', textShadowRadius: 3 },
-});
+  name: { color: C.red, fontSize: 13, fontWeight: '600', textShadowColor: C.halo, textShadowRadius: 3 },
+  sub: { color: C.redDim, fontSize: 10, fontFamily: F.mono, textShadowColor: C.halo, textShadowRadius: 3 },
+}));

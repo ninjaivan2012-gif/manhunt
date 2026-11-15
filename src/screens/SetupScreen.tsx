@@ -9,7 +9,7 @@ import { approxRadius, centroid, circlePolygon } from '../game/geo';
 import type { LatLng, NoGoZone } from '../game/types';
 import { GameMap, type GameMapHandle } from '../ui/GameMap';
 import { Btn, Stepper } from '../ui/kit';
-import { C } from '../ui/theme';
+import { C, themed } from '../ui/theme';
 
 type Mode = 'circle' | 'custom' | 'nogo';
 
@@ -98,7 +98,7 @@ export function SetupScreen({ go }: { go: (r: Route) => void }) {
         <Pressable accessibilityLabel="Back" onPress={() => go('lobby')} style={st.square}><Text style={{ color: C.redSoft, fontSize: 20 }}>‹</Text></Pressable>
         <View style={st.segment}>
           {(['circle', 'custom', 'nogo'] as Mode[]).map((m) => (
-            <Pressable key={m} onPress={() => pickMode(m)} style={[st.segBtn, mode === m && { backgroundColor: '#2A0A0C' }]} accessibilityRole="button">
+            <Pressable key={m} onPress={() => pickMode(m)} style={[st.segBtn, mode === m && { backgroundColor: C.selected }]} accessibilityRole="button">
               <Text style={{ color: mode === m ? C.red : C.redDim, fontSize: 13, fontWeight: mode === m ? '600' : '400' }}>
                 {m === 'circle' ? 'Circle' : m === 'custom' ? 'Custom' : '+ No-go'}
               </Text>
@@ -143,12 +143,12 @@ export function SetupScreen({ go }: { go: (r: Route) => void }) {
   );
 }
 
-const st = StyleSheet.create({
+const st = themed(() => StyleSheet.create({
   topBar: { position: 'absolute', left: 16, right: 16, flexDirection: 'row', gap: 10 },
-  square: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: C.line, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  segment: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: C.line, backgroundColor: '#000', flexDirection: 'row', padding: 3, gap: 3 },
+  square: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: C.line, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' },
+  segment: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: C.line, backgroundColor: C.bg, flexDirection: 'row', padding: 3, gap: 3 },
   segBtn: { flex: 1, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
-  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#070404', borderTopWidth: 1, borderTopColor: C.line, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 16, gap: 12 },
+  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.line, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 16, gap: 12 },
   row: { flexDirection: 'row', gap: 10 },
   flexBtn: { flex: 1, height: 48 },
-});
+}));

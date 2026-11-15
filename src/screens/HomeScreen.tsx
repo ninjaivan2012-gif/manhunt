@@ -6,8 +6,8 @@ import { isConfigured } from '../firebase';
 import { useGame } from '../GameContext';
 import { createGame, joinGame } from '../game/api';
 import { getSavedName, saveName } from '../session';
-import { Btn, Label } from '../ui/kit';
-import { C, F } from '../ui/theme';
+import { Btn, Label, ThemeToggle } from '../ui/kit';
+import { C, F, themed } from '../ui/theme';
 
 export function HomeScreen() {
   const { enter } = useGame();
@@ -43,7 +43,8 @@ export function HomeScreen() {
           <Svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth={1.6}>
             <Circle cx={12} cy={12} r={8} /><Circle cx={12} cy={12} r={2} /><Path d="M12 1v5M12 18v5M1 12h5M18 12h5" />
           </Svg>
-          <Label>NIGHT OPS · v0.1</Label>
+          <Label style={{ flex: 1 }}>NIGHT OPS · v0.1</Label>
+          <ThemeToggle />
         </View>
         <Text style={st.title}>MAN{'\n'}HUNT</Text>
         <Text style={st.tag}>Run. Hide. Get pinged. A real-world game of tag on a live map.</Text>
@@ -70,7 +71,7 @@ export function HomeScreen() {
           value={code}
           onChangeText={(t) => setCode(t.toUpperCase())}
           placeholder="K7R2QX"
-          placeholderTextColor="#5A2A2A"
+          placeholderTextColor={C.placeholder}
           autoCapitalize="characters"
           autoCorrect={false}
           maxLength={7}
@@ -89,7 +90,7 @@ export function HomeScreen() {
   );
 }
 
-const st = StyleSheet.create({
+const st = themed(() => StyleSheet.create({
   wrap: { flexGrow: 1, paddingHorizontal: 24 },
   title: { marginTop: 24, fontFamily: F.display, fontSize: 64, lineHeight: 60, letterSpacing: 2, color: C.red },
   tag: { marginTop: 14, fontSize: 15, lineHeight: 22, color: C.redDim, maxWidth: 270 },
@@ -101,4 +102,4 @@ const st = StyleSheet.create({
   orRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 14 },
   orLine: { flex: 1, height: 1, backgroundColor: C.line },
   error: { color: C.red, fontSize: 14, lineHeight: 20 },
-});
+}));
