@@ -11,6 +11,15 @@ import type { Msg, MsgTarget, Team } from '../game/types';
 const MAX_CLIP_MS = 15_000;
 const MUTE_KEY = 'mh.muted';
 
+/** Turns a send failure into something a player can act on. */
+function sendError(e: unknown, step: 'send' | 'record'): string {
+  const code = (e as { code?: string })?.code ?? '';
+  if (code.includes('permission-denied')) return 'Blocked by the database rules. Re-publish the latest rules in Firebase.';
+  if (code.includes('unavailable')) return 'No internet connection. Try again.';
+  if (step === 'record') return 'Could not save the recording. Try again.';
+  return `Could not send${code ? ` (${code})` : ''}. Try again.`;
+}
+
 /**
  * Walkie-talkie and chat. Hold to record a voice message (up to 15 s), or type a text.
  * Messages go to your team, to everyone, or to one player on either team.
@@ -105,11 +114,18 @@ export function useComms(opts: { code: string; uid: string; name: string; team: 
       setRecording(false);
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldPlayInBackground: true });
       if (!recorder.uri) return;
-      const audio = await new File(recorder.uri).base64();
+      let audio: string;
+      try {
+        audio = await new File(recorder.uri).base64();
+      } catch (e) {
+        setError(sendError(e, 'record'));
+        return;
+      }
       await send({ kind: 'voice', audio }, target.current);
-    } catch {
+      setError(null);
+    } catch (e) {
       setRecording(false);
-      setError('Could not send that message.');
+      setError(sendError(e, 'send'));
     }
   }, [recorder, send]);
 
@@ -133,7 +149,13 @@ export function useComms(opts: { code: string; uid: string; name: string; team: 
   const sendText = useCallback(async (text: string, to: MsgTarget) => {
     const t = text.trim().slice(0, 300);
     if (!t) return;
-    try { await send({ kind: 'text', text: t }, to); } catch { setError('Could not send that message.'); }
+    try {
+      await send({ kind: 'text', text: t }, to);
+      setError(null);
+    } catch (e) {
+      setError(sendError(e, 'send'));
+      throw e;
+    }
   }, [send]);
 
   return {

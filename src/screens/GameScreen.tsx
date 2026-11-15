@@ -314,7 +314,12 @@ function ChatPanel(props: {
   const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState('');
   const list = useRef<FlatList>(null);
-  const send = () => { comms.sendText(draft, props.target); setDraft(''); };
+  // Keep the typed text if sending fails, so it isn't lost.
+  const send = () => {
+    const text = draft;
+    setDraft('');
+    comms.sendText(text, props.target).catch(() => setDraft(text));
+  };
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: C.bg }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={{ paddingTop: insets.top + 10, paddingHorizontal: 16, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: C.line }}>
@@ -349,6 +354,7 @@ function ChatPanel(props: {
         }}
       />
       <View style={{ borderTopWidth: 1, borderTopColor: C.line, padding: 12, paddingBottom: insets.bottom + 12, gap: 10, backgroundColor: C.surface }}>
+        {comms.error && <Text style={{ color: C.red, fontSize: 13, lineHeight: 18 }}>{comms.error}</Text>}
         <TargetChips target={props.target} setTarget={props.setTarget} team={team} others={props.others} />
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TextInput

@@ -58,9 +58,8 @@ service cloud.firestore {
       // and (for voice) the audio is under ~900 KB.
       function okMsg() {
         return request.resource.data.from == request.auth.uid
-          && (request.resource.data.kind == 'text'
-              ? request.resource.data.text.size() <= 300
-              : request.resource.data.audio.size() < 900000);
+          && (!('text' in request.resource.data) || request.resource.data.text.size() <= 300)
+          && (!('audio' in request.resource.data) || request.resource.data.audio.size() < 900000);
       }
 
       // Your own team's channel.
