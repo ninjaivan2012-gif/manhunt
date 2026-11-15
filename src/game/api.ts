@@ -2,7 +2,7 @@ import {
   addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 import { db, ensureSignedIn } from '../firebase';
-import type { Border, Game, LivePos, NoGoZone, Ping, Player, PlayerStatus, Settings, Team, VoiceClip } from './types';
+import type { Border, Game, LivePos, NoGoZone, Ping, Player, PlayerStatus, Settings, Team, Msg, MsgTarget } from './types';
 import { DEFAULT_SETTINGS } from './types';
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I/L, so codes are easy to read out loud
@@ -12,7 +12,9 @@ const randomSecret = () => Array.from({ length: 24 }, () => Math.floor(Math.rand
 const gameRef = (code: string) => doc(db, 'games', code);
 const playersCol = (code: string) => collection(db, 'games', code, 'players');
 const liveCol = (code: string, team: Team) => collection(db, 'games', code, 'teams', team, 'live');
-const voiceCol = (code: string, team: Team) => collection(db, 'games', code, 'teams', team, 'voice');
+const teamMsgs = (code: string, team: Team) => collection(db, 'games', code, 'teams', team, 'msgs');
+const allMsgs = (code: string) => collection(db, 'games', code, 'msgs');
+const inbox = (code: string, uid: string) => collection(db, 'games', code, 'inbox', uid, 'msgs');
 const pingsCol = (code: string) => collection(db, 'games', code, 'pings');
 
 async function makeSecret(code: string, uid: string): Promise<string> {
@@ -75,12 +77,17 @@ export function watchPings(code: string, cb: (p: Ping[]) => void) {
   return onSnapshot(pingsCol(code), (s) => cb(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Ping, 'id'>) }))));
 }
 
-export function watchVoice(code: string, team: Team, since: number, cb: (clip: VoiceClip) => void) {
-  return onSnapshot(query(voiceCol(code, team), where('at', '>', since)), (s) => {
-    s.docChanges().forEach((c) => {
-      if (c.type === 'added') cb({ id: c.doc.id, ...(c.doc.data() as Omit<VoiceClip, 'id'>) });
-    });
-  });
+/** Every message I can see: my team's channel, the everyone channel, and my private inbox. */
+export function watchMsgs(code: string, team: Team, uid: string, since: number, cb: (m: Msg) => void) {
+  const sources = [teamMsgs(code, team), allMsgs(code), inbox(code, uid)];
+  const unsubs = sources.map((col) =>
+    onSnapshot(query(col, where('at', '>', since)), (s) => {
+      s.docChanges().forEach((c) => {
+        if (c.type === 'added') cb({ id: c.doc.id, ...(c.doc.data() as Omit<Msg, 'id'>) });
+      });
+    }, () => {}),
+  );
+  return () => unsubs.forEach((u) => u());
 }
 
 // ---- Host controls ----
@@ -148,5 +155,25 @@ export async function tagRunner(code: string, hunterId: string, runnerId: string
   await batch.commit();
 }
 
-export const sendVoice = (code: string, team: Team, from: string, fromName: string, to: string, audio: string) =>
-  addDoc(voiceCol(code, team), { from, fromName, team, to, audio, at: Date.now() });
+export function targetLabel(t: MsgTarget, myTeam: Team): string {
+  if (t.kind === 'all') return 'Everyone';
+  if (t.kind === 'player') return t.name;
+  return myTeam === 'hunter' ? 'Hunters' : 'Runners';
+}
+
+/** Sends a voice or text message. Returns the message as saved, so the sender can show it too. */
+export async function sendMsg(
+  code: string, me: { uid: string; name: string; team: Team }, target: MsgTarget,
+  content: { kind: 'voice'; audio: string } | { kind: 'text'; text: string },
+): Promise<Msg> {
+  const col = target.kind === 'team' ? teamMsgs(code, me.team) : target.kind === 'all' ? allMsgs(code) : inbox(code, target.id);
+  const data: Omit<Msg, 'id'> = {
+    from: me.uid, fromName: me.name, fromTeam: me.team,
+    scope: target.kind === 'player' ? 'direct' : target.kind,
+    toName: targetLabel(target, me.team),
+    at: Date.now(),
+    ...content,
+  };
+  const ref = await addDoc(col, data);
+  return { id: ref.id, ...data };
+}

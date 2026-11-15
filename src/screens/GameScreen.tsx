@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import type { Route } from '../../App';
@@ -8,12 +8,12 @@ import { useGame, useNow } from '../GameContext';
 import { backToLobby, endGame, hostEliminate, watchPings, watchTeamLive } from '../game/api';
 import { bearing, compassWord } from '../game/geo';
 import { borderAtScale, checkBounds, currentBorder, fmtClock, nextPingAt, nextShrink, phase, releaseAt } from '../game/logic';
-import type { LatLng, LivePos, Ping } from '../game/types';
+import type { LatLng, LivePos, MsgTarget, Ping, Player, Team } from '../game/types';
 import { getNumber } from '../session';
 import { GameMap, type GameMapHandle, type MapMarker } from '../ui/GameMap';
 import { Btn, Chip, Label, Stat } from '../ui/kit';
 import { C, F } from '../ui/theme';
-import { useWalkie } from '../voice/useWalkie';
+import { useComms } from '../voice/useComms';
 
 const ago = (ms: number) => (ms < 60_000 ? `${Math.floor(ms / 1000)}s ago` : `${fmtClock(ms)} ago`);
 
@@ -26,7 +26,8 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
   const [pings, setPings] = useState<Ping[]>([]);
   const [myPos, setMyPos] = useState<LatLng | null>(null);
   const [outsideSince, setOutsideSince] = useState<number | null>(null);
-  const [target, setTarget] = useState('team');
+  const [target, setTarget] = useState<MsgTarget>({ kind: 'team' });
+  const [chatOpen, setChatOpen] = useState(false);
   const [hostPanel, setHostPanel] = useState(false);
 
   const code = session?.code ?? '';
@@ -52,7 +53,7 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
   useEffect(() => { getNumber('outsideSince').then(setOutsideSince); }, [now]);
 
   const voiceOn = !!game && (game.settings.voice === 'both' || game.settings.voice === `${team}s`);
-  const walkie = useWalkie({ code, uid: session?.uid ?? '', name: session?.name ?? '', team, enabled: voiceOn });
+  const comms = useComms({ code, uid: session?.uid ?? '', name: session?.name ?? '', team, enabled: voiceOn });
 
   const border = useMemo(() => (game ? currentBorder(game, now) : []), [game, Math.floor(now / 1000)]); // eslint-disable-line react-hooks/exhaustive-deps
   const shrink = game ? nextShrink(game, now) : null;
@@ -63,7 +64,7 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
   const ph = phase(game, now);
   const runners = players.filter((p) => p.team === 'runner');
   const runnersAlive = runners.filter((p) => p.status === 'alive');
-  const teammates = players.filter((p) => p.team === team && p.id !== me.id);
+  const others = players.filter((p) => p.id !== me.id);
   const untilPing = nextPingAt(game, now) - now;
   const center = border.length ? border[0] : myPos ?? { lat: 0, lng: 0 };
 
@@ -140,30 +141,47 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
       <View style={[st.bottom, { paddingBottom: insets.bottom + 16 }]}>
         {voiceOn && (
           <View style={{ gap: 10 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Label>WALKIE-TALKIE</Label>
-              <Text style={{ color: C.redDim, fontSize: 12 }}>{walkie.recording ? 'Recording… release to send' : walkie.talking ? `${walkie.talking} is talking…` : walkie.error ?? ''}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Label style={{ flex: 1 }}>WALKIE-TALKIE</Label>
+              <Pressable
+                accessibilityRole="switch"
+                accessibilityState={{ checked: comms.muted }}
+                accessibilityLabel="Mute walkie-talkie"
+                onPress={() => comms.setMuted(!comms.muted)}
+                style={[st.iconBtn, comms.muted && { borderColor: C.red, backgroundColor: '#1A0708' }]}
+              >
+                <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={comms.muted ? C.red : C.redSoft} strokeWidth={1.8}>
+                  <Path d="M4 9v6h4l5 4V5L8 9H4z" />
+                  {comms.muted ? <Path d="M17 9l5 6M22 9l-5 6" /> : <Path d="M17 8.5a5 5 0 0 1 0 7M19.5 6a8.5 8.5 0 0 1 0 12" />}
+                </Svg>
+              </Pressable>
+              <Pressable accessibilityLabel={`Open chat${comms.unread ? `, ${comms.unread} new` : ''}`} onPress={() => { setChatOpen(true); comms.clearUnread(); }} style={st.iconBtn}>
+                <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={C.redSoft} strokeWidth={1.8}>
+                  <Path d="M4 5h16v11H9l-5 4V5z" />
+                </Svg>
+                {comms.unread > 0 && <View style={st.badge}><Text style={st.badgeText}>{comms.unread > 9 ? '9+' : comms.unread}</Text></View>}
+              </Pressable>
             </View>
-            {teammates.length > 0 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                <Chip label={team === 'hunter' ? 'All hunters' : 'All runners'} active={target === 'team'} onPress={() => setTarget('team')} />
-                {teammates.map((p) => <Chip key={p.id} label={p.name} active={target === p.id} onPress={() => setTarget(p.id)} />)}
-              </ScrollView>
-            )}
+            <Text style={{ color: C.redDim, fontSize: 12 }} numberOfLines={1}>
+              {comms.recording ? `Recording to ${targetName(target, team)}… release to send`
+                : comms.talking ? `${comms.talking} is talking…`
+                : comms.error ?? (comms.muted ? 'Muted. New voice messages wait in the chat.' : `Talking to ${targetName(target, team)}`)}
+            </Text>
+            <TargetChips target={target} setTarget={setTarget} team={team} others={others} />
           </View>
         )}
         <View style={{ flexDirection: 'row', gap: 10 }}>
           {voiceOn && (
             <Pressable
               accessibilityLabel="Hold to talk"
-              onPressIn={() => walkie.start(target)}
-              onPressOut={() => walkie.stop()}
-              style={[st.talk, walkie.recording && { backgroundColor: C.fill, borderColor: C.red }]}
+              onPressIn={() => comms.startTalking(target)}
+              onPressOut={() => comms.stopTalking()}
+              style={[st.talk, comms.recording && { backgroundColor: C.fill, borderColor: C.red }]}
             >
-              <Svg width={26} height={26} viewBox="0 0 24 24" fill="none" stroke={walkie.recording ? C.fillText : C.red} strokeWidth={1.8}>
+              <Svg width={26} height={26} viewBox="0 0 24 24" fill="none" stroke={comms.recording ? C.fillText : C.red} strokeWidth={1.8}>
                 <Rect x={9} y={3} width={6} height={11} rx={3} /><Path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
               </Svg>
-              <Text style={{ color: walkie.recording ? C.fillText : C.red, fontFamily: F.display, fontSize: 10, letterSpacing: 1.5 }}>HOLD</Text>
+              <Text style={{ color: comms.recording ? C.fillText : C.red, fontFamily: F.display, fontSize: 10, letterSpacing: 1.5 }}>HOLD</Text>
             </Pressable>
           )}
           {alive && team === 'hunter' && ph === 'hunt' && <Btn label="SCAN TO TAG" style={st.bigAction} onPress={() => go('tag')} />}
@@ -221,6 +239,19 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
         </View>
       )}
 
+      {/* Chat */}
+      <Modal visible={chatOpen} animationType="slide" onRequestClose={() => setChatOpen(false)}>
+        <ChatPanel
+          onClose={() => { setChatOpen(false); comms.clearUnread(); }}
+          comms={comms}
+          myId={me.id}
+          team={team}
+          others={others}
+          target={target}
+          setTarget={setTarget}
+        />
+      </Modal>
+
       {/* Host tools */}
       <Modal visible={hostPanel} transparent animationType="slide" onRequestClose={() => setHostPanel(false)}>
         <View style={st.modalBg}>
@@ -246,6 +277,97 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
   );
 }
 
+function targetName(t: MsgTarget, team: Team) {
+  return t.kind === 'all' ? 'everyone' : t.kind === 'player' ? t.name : team === 'hunter' ? 'all hunters' : 'all runners';
+}
+
+function TargetChips({ target, setTarget, team, others }: {
+  target: MsgTarget; setTarget: (t: MsgTarget) => void; team: Team; others: Player[];
+}) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
+      <Chip label="My team" active={target.kind === 'team'} onPress={() => setTarget({ kind: 'team' })} />
+      <Chip label="Everyone" active={target.kind === 'all'} onPress={() => setTarget({ kind: 'all' })} />
+      {others.map((p) => (
+        <Chip
+          key={p.id}
+          label={`${p.name} · ${p.team === 'hunter' ? 'H' : 'R'}`}
+          active={target.kind === 'player' && target.id === p.id}
+          onPress={() => setTarget({ kind: 'player', id: p.id, name: p.name })}
+        />
+      ))}
+    </ScrollView>
+  );
+}
+
+function ChatPanel(props: {
+  onClose: () => void;
+  comms: ReturnType<typeof useComms>;
+  myId: string;
+  team: Team;
+  others: Player[];
+  target: MsgTarget;
+  setTarget: (t: MsgTarget) => void;
+}) {
+  const { comms, myId, team } = props;
+  const insets = useSafeAreaInsets();
+  const [draft, setDraft] = useState('');
+  const list = useRef<FlatList>(null);
+  const send = () => { comms.sendText(draft, props.target); setDraft(''); };
+  return (
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: C.bg }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <View style={{ paddingTop: insets.top + 10, paddingHorizontal: 16, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: C.line }}>
+        <Text style={[st.bannerTitle, { flex: 1 }]}>CHAT</Text>
+        <Btn label="CLOSE" kind="secondary" style={{ height: 40 }} onPress={props.onClose} />
+      </View>
+      <FlatList
+        ref={list}
+        data={comms.messages}
+        keyExtractor={(m) => m.id}
+        contentContainerStyle={{ padding: 16, gap: 10, flexGrow: 1 }}
+        onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
+        ListEmptyComponent={<Text style={{ color: C.redDim, textAlign: 'center', marginTop: 40 }}>No messages yet.</Text>}
+        renderItem={({ item: m }) => {
+          const mine = m.from === myId;
+          const enemy = m.fromTeam !== team;
+          return (
+            <View style={[st.bubble, mine ? st.bubbleMine : null, enemy && { borderColor: C.lineStrong, backgroundColor: '#0E0505' }]}>
+              <Text style={{ color: C.redDim, fontSize: 11, fontFamily: F.mono }}>
+                {mine ? 'You' : m.fromName} {m.fromTeam === 'hunter' ? '(hunter)' : '(runner)'} → {m.scope === 'direct' && !mine ? 'you' : m.toName}
+              </Text>
+              {m.kind === 'text'
+                ? <Text style={{ color: C.white, fontSize: 15, lineHeight: 21 }}>{m.text}</Text>
+                : (
+                  <Pressable accessibilityRole="button" accessibilityLabel="Play voice message" onPress={() => comms.replay(m)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 32 }}>
+                    <Svg width={18} height={18} viewBox="0 0 24 24" fill={C.red}><Path d="M7 5l12 7-12 7V5z" /></Svg>
+                    <Text style={{ color: C.red, fontSize: 14 }}>Voice message</Text>
+                  </Pressable>
+                )}
+            </View>
+          );
+        }}
+      />
+      <View style={{ borderTopWidth: 1, borderTopColor: C.line, padding: 12, paddingBottom: insets.bottom + 12, gap: 10, backgroundColor: '#070404' }}>
+        <TargetChips target={props.target} setTarget={props.setTarget} team={team} others={props.others} />
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            placeholder={`Message ${targetName(props.target, team)}`}
+            placeholderTextColor={C.redDim}
+            maxLength={300}
+            onSubmitEditing={send}
+            returnKeyType="send"
+            accessibilityLabel="Message"
+            style={st.chatInput}
+          />
+          <Btn label="SEND" style={{ height: 48, width: 84 }} onPress={send} disabled={!draft.trim()} />
+        </View>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
 const st = StyleSheet.create({
   top: { position: 'absolute', left: 16, right: 16, gap: 10 },
   roleChip: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.lineStrong },
@@ -256,6 +378,12 @@ const st = StyleSheet.create({
   bannerClock: { fontFamily: F.monoBold, fontSize: 28, color: C.red },
   warn: { color: C.redSoft, fontSize: 12, lineHeight: 17, backgroundColor: 'rgba(0,0,0,0.85)', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: C.line },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 12, gap: 12, backgroundColor: 'rgba(7,4,4,0.94)', borderTopWidth: 1, borderTopColor: C.line, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  iconBtn: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
+  badge: { position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.fill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  badgeText: { color: C.fillText, fontSize: 10, fontWeight: '700' },
+  bubble: { alignSelf: 'flex-start', maxWidth: '85%', borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 10, gap: 4, backgroundColor: C.surface },
+  bubbleMine: { alignSelf: 'flex-end', backgroundColor: '#1A0708', borderColor: C.lineStrong },
+  chatInput: { flex: 1, height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.lineStrong, backgroundColor: C.surface, paddingHorizontal: 12, color: C.white, fontSize: 15 },
   talk: { width: 72, height: 64, borderRadius: 16, borderWidth: 1, borderColor: C.lineStrong, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', gap: 2 },
   bigAction: { flex: 1, height: 64, borderRadius: 16 },
   oob: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: '#000', borderWidth: 3, borderColor: C.danger, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10 },

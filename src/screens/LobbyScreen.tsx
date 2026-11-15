@@ -119,7 +119,7 @@ export function LobbyScreen({ go }: { go: (r: Route) => void }) {
               The border shrinks {s.shrinkSteps} time{s.shrinkSteps === 1 ? '' : 's'}, about every {Math.round(s.durationMin / (s.shrinkSteps + 1))} min, ending at {Math.round(s.finalScale * 100)}% of its size.
             </Text>
           )}
-          <Text style={{ color: C.redDim, fontSize: 14, marginTop: 6 }}>Walkie-talkie</Text>
+          <Text style={{ color: C.redDim, fontSize: 14, marginTop: 6 }}>Walkie-talkie &amp; chat</Text>
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
             {voiceOpts.map((o) => <Chip key={o.v} label={o.label} active={s.voice === o.v} onPress={isHost ? () => set({ voice: o.v }) : undefined} />)}
           </View>

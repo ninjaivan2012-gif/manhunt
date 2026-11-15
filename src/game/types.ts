@@ -47,13 +47,19 @@ export type Player = {
 export type LivePos = { id: string; name: string; team: Team; lat: number; lng: number; at: number };
 export type Ping = { id: string; name: string; lat: number; lng: number; at: number };
 
-export type VoiceClip = {
+/** Who a message goes to: your own team, every player, or one player (any team). */
+export type MsgTarget = { kind: 'team' } | { kind: 'all' } | { kind: 'player'; id: string; name: string };
+
+export type Msg = {
   id: string;
   from: string;
   fromName: string;
-  team: Team;
-  to: string; // 'team' or a player id
-  audio: string; // base64 audio
+  fromTeam: Team;
+  scope: 'team' | 'all' | 'direct';
+  toName: string; // shown in the chat, e.g. "Hunters", "Everyone", "Maya"
+  kind: 'voice' | 'text';
+  text?: string;
+  audio?: string; // base64 audio for voice messages
   at: number;
 };
 

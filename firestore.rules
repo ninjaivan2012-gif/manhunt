@@ -54,11 +54,31 @@ service cloud.firestore {
         allow delete: if signedIn() && (pid == request.auth.uid || isHost(code));
       }
 
-      match /teams/{team}/voice/{clipId} {
+      // Walkie-talkie and chat. A message is valid if it's from you, is short enough,
+      // and (for voice) the audio is under ~900 KB.
+      function okMsg() {
+        return request.resource.data.from == request.auth.uid
+          && (request.resource.data.kind == 'text'
+              ? request.resource.data.text.size() <= 300
+              : request.resource.data.audio.size() < 900000);
+      }
+
+      // Your own team's channel.
+      match /teams/{team}/msgs/{id} {
         allow read: if inGame(code) && myTeam(code) == team;
-        allow create: if inGame(code) && myTeam(code) == team
-          && request.resource.data.from == request.auth.uid
-          && request.resource.data.audio.size() < 900000;
+        allow create: if inGame(code) && myTeam(code) == team && okMsg();
+      }
+
+      // Everyone in the game.
+      match /msgs/{id} {
+        allow read: if inGame(code);
+        allow create: if inGame(code) && okMsg();
+      }
+
+      // Private messages to one player (any team). Only that player can read them.
+      match /inbox/{pid}/msgs/{id} {
+        allow read: if inGame(code) && pid == request.auth.uid;
+        allow create: if inGame(code) && exists(playerPath(code, pid)) && okMsg();
       }
 
       match /pings/{pid} {
