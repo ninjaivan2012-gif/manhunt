@@ -6,7 +6,7 @@ for (const [k, s] of Object.entries(style.sources)) console.log('SOURCE', k, s.t
 let tiles = Object.values(style.sources).find((s) => s.type === 'vector');
 if (!tiles.tiles && tiles.url) { tiles = await (await fetch(tiles.url)).json(); console.log('TILEJSON', JSON.stringify(tiles.tiles), 'maxzoom', tiles.maxzoom); }
 const tmpl = tiles.tiles[0];
-const z = 14, lat = 28.5434, lng = -81.3730;
+const z = 15, lat = 28.5434, lng = -81.3730;
 const x = Math.floor(((lng + 180) / 360) * 2 ** z);
 const y = Math.floor((1 - Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) / Math.PI) / 2 * 2 ** z);
 const url = tmpl.replace('{z}', z).replace('{x}', x).replace('{y}', y);
@@ -19,8 +19,9 @@ for (const [name, layer] of Object.entries(vt.layers)) {
   const classes = {};
   for (let i = 0; i < layer.length; i++) {
     const f = layer.feature(i);
-    const c = `${['?', 'Point', 'Line', 'Polygon'][f.type]}:${f.properties.class ?? ''}:${f.properties.subclass ?? f.properties.type ?? ''}`;
+    const c = `${['?', 'Point', 'Line', 'Polygon'][f.type]}:${f.properties.kind ?? ''}:${f.properties.kind_detail ?? ''}`;
     classes[c] = (classes[c] ?? 0) + 1;
   }
-  console.log('LAYER', name, layer.length, 'extent', layer.extent, JSON.stringify(classes).slice(0, 600));
+  console.log('LAYER', name, layer.length, 'extent', layer.extent, JSON.stringify(classes).slice(0, 900));
+  if (layer.length) console.log('KEYS', name, JSON.stringify(layer.feature(0).properties).slice(0, 300));
 }
