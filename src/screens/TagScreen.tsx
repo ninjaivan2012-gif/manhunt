@@ -37,9 +37,20 @@ export function TagScreen({ go }: { go: (r: Route) => void }) {
     if (!found || !game || !session) return;
     setBusy(true);
     try {
-      await tagRunner(game.code, session.uid, found.runnerId, found.secret);
-      Vibration.vibrate([0, 80, 60, 80]);
-      go('game');
+      const r = await tagRunner(game.code, session.uid, found.runnerId, found.secret);
+      if (r.kind === 'caught') {
+        Vibration.vibrate([0, 80, 60, 80]);
+        go('game');
+      } else if (r.kind === 'life') {
+        Vibration.vibrate(200);
+        setMsg(`${found.name} used an extra life! They stay in and can't be tagged for 60 seconds.`);
+        setFound(null);
+        lastScan.current = '';
+      } else {
+        setMsg(`${found.name} is shielded. Try again in ${r.secondsLeft} seconds.`);
+        setFound(null);
+        lastScan.current = '';
+      }
     } catch {
       setMsg('Tag failed. Scan again, or ask the host to eliminate them.');
       setFound(null);

@@ -1,14 +1,16 @@
 import * as Location from 'expo-location';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Vibration, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import type { Route } from '../../App';
 import { useGame, useNow } from '../GameContext';
-import { backToLobby, endGame, hostEliminate, watchPings, watchTeamLive } from '../game/api';
+import { emptyState, loadChallenge, updateChallenge, type ChallengeState } from '../challengeStore';
+import { addLife, backToLobby, endGame, hostEliminate, makeSecret, watchPerks, watchPings, watchTeamLive } from '../game/api';
+import { currentGoal, describe, HOLD_RADIUS, PERKS, REACH_RADIUS, SKIP_COOLDOWN_MS, type PerkId } from '../game/challenges';
 import { bearing, compassWord } from '../game/geo';
 import { borderAtScale, checkBounds, currentBorder, fmtClock, nextPingAt, nextShrink, phase, releaseAt } from '../game/logic';
-import type { LatLng, LivePos, MsgTarget, Ping, Player, Team } from '../game/types';
+import type { LatLng, LivePos, MsgTarget, Perks, Ping, Player, Team } from '../game/types';
 import { getNumber } from '../session';
 import { GameMap, type GameMapHandle, type MapMarker } from '../ui/GameMap';
 import { Btn, Chip, Label, Stat, ThemeToggle } from '../ui/kit';
@@ -29,6 +31,10 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
   const [target, setTarget] = useState<MsgTarget>({ kind: 'team' });
   const [chatOpen, setChatOpen] = useState(false);
   const [hostPanel, setHostPanel] = useState(false);
+  const [ch, setCh] = useState<ChallengeState | null>(null);
+  const [perksOpen, setPerksOpen] = useState(false);
+  const [myPerks, setMyPerks] = useState<Perks>({ lives: 0, shieldUntil: 0 });
+  const prevLives = useRef(0);
 
   const code = session?.code ?? '';
   const team = me?.team ?? 'runner';
@@ -49,8 +55,27 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
     return () => sub?.remove();
   }, []);
 
-  // The background tracker owns the out-of-bounds timer; mirror it here for the warning screen.
-  useEffect(() => { getNumber('outsideSince').then(setOutsideSince); }, [now]);
+  // The background tracker owns the out-of-bounds timer and challenges; mirror them here.
+  const challengesOn = !!game?.settings.challenges && team === 'runner';
+  useEffect(() => {
+    getNumber('outsideSince').then(setOutsideSince);
+    if (challengesOn && game?.startedAt) loadChallenge(game.startedAt).then(setCh);
+  }, [now]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Extra life: when a hunter uses it up, warn the runner and change their tag code
+  // so the same scan can't be used again.
+  useEffect(() => {
+    if (!code || !session || team !== 'runner') return;
+    return watchPerks(code, session.uid, (p) => {
+      if (p.lives < prevLives.current) {
+        Vibration.vibrate([0, 200, 100, 200, 100, 200]);
+        makeSecret(code, session.uid).catch(() => {});
+        Alert.alert('Extra life used!', 'You got tagged but stay in the game. Run! You can\'t be tagged for 60 seconds.');
+      }
+      prevLives.current = p.lives;
+      setMyPerks(p);
+    });
+  }, [code, session?.uid, team]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const voiceOn = !!game && (game.settings.voice === 'both' || game.settings.voice === `${team}s`);
   const comms = useComms({ code, uid: session?.uid ?? '', name: session?.name ?? '', team, enabled: voiceOn });
@@ -75,12 +100,48 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
     if (p && p.status !== 'alive') return;
     markers.push({ id: `l-${m.id}`, pos: m, label: m.name, sub: now - m.at > 30_000 ? ago(now - m.at) : undefined, kind: 'teammate' });
   });
+  const circles: { id: string; center: LatLng; radius: number; kind: 'goal' | 'blur' }[] = [];
   if (team === 'hunter' || !alive) {
     pings.forEach((p) => {
       if (players.find((x) => x.id === p.id)?.status !== 'alive') return;
-      markers.push({ id: `p-${p.id}`, pos: p, label: p.name, sub: ago(now - p.at), kind: 'ping' });
+      if (p.lat == null || p.lng == null) return; // jammed before any real ping
+      const pos = { lat: p.lat, lng: p.lng };
+      const sub = p.jammed ? `jammed · ${ago(now - p.at)}` : p.radius ? `±${p.radius} m · ${ago(now - p.at)}` : ago(now - p.at);
+      markers.push({ id: `p-${p.id}`, pos, label: p.name, sub, kind: 'ping' });
+      if (p.radius && !p.jammed) circles.push({ id: `b-${p.id}`, center: pos, radius: p.radius, kind: 'blur' });
     });
   }
+
+  // This runner's own challenge goal.
+  const active = challengesOn && alive && ph === 'hunt' ? ch?.active ?? null : null;
+  const goal = active ? currentGoal(active) : null;
+  if (active && goal) {
+    const label = active.kind === 'checkpoints' ? `Spot ${active.step + 1}` : 'Challenge';
+    markers.push({ id: 'goal', pos: goal, label, kind: 'goal' });
+    circles.push({ id: 'goal', center: goal, radius: active.kind === 'hold' ? HOLD_RADIUS : REACH_RADIUS, kind: 'goal' });
+  }
+  const shielded = myPerks.shieldUntil > now;
+
+  const skip = () => {
+    if (!game.startedAt) return;
+    updateChallenge(game.startedAt, (s) => { s.active = null; s.cooldownUntil = Date.now() + SKIP_COOLDOWN_MS; s.label = ''; s.fraction = 0; }).then(setCh);
+  };
+  const buy = async (id: PerkId) => {
+    if (!game.startedAt || !ch) return;
+    const cost = PERKS[id].cost;
+    if (ch.points < cost) return;
+    try {
+      if (id === 'life') await addLife(code, session.uid);
+      const next = await updateChallenge(game.startedAt, (s) => {
+        s.points -= cost;
+        if (id === 'blur') s.blurNext = true;
+        if (id === 'jam') s.jamNext = true;
+      });
+      setCh(next);
+    } catch (e) {
+      Alert.alert('Could not use that perk', e instanceof Error ? e.message : 'Try again.');
+    }
+  };
 
   const outside = alive && outsideSince != null && (ph === 'hunt' || ph === 'headstart');
   const bounds = myPos ? checkBounds(game, myPos, now) : null;
@@ -91,7 +152,7 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <GameMap ref={map} initialCenter={myPos ?? center} border={border} nextBorder={nextBorder} noGo={game.noGo} markers={markers} />
+      <GameMap ref={map} initialCenter={myPos ?? center} border={border} nextBorder={nextBorder} noGo={game.noGo} markers={markers} circles={circles} />
 
       {/* Top HUD */}
       <View style={[st.top, { top: insets.top + 8 }]}>
@@ -131,6 +192,16 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
             </View>
             <Text style={st.bannerClock}>{fmtClock(untilPing)}</Text>
           </View>
+        )}
+        {challengesOn && alive && ph === 'hunt' && (
+          <ChallengeCard
+            ch={ch ?? emptyState(game.startedAt ?? 0)}
+            now={now}
+            lives={myPerks.lives}
+            shielded={shielded ? Math.ceil((myPerks.shieldUntil - now) / 1000) : 0}
+            onSkip={skip}
+            onPerks={() => setPerksOpen(true)}
+          />
         )}
         {trackingOk === false && (
           <Text style={st.warn}>Location isn't set to "Allow all the time", so tracking stops when your screen locks. Change it in Settings → Apps → Manhunt → Location.</Text>
@@ -240,6 +311,36 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
         </View>
       )}
 
+      {/* Perks shop */}
+      <Modal visible={perksOpen} transparent animationType="slide" onRequestClose={() => setPerksOpen(false)}>
+        <View style={st.modalBg}>
+          <View style={[st.modal, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={[st.bannerTitle, { flex: 1 }]}>PERKS</Text>
+              <Text style={{ color: C.red, fontFamily: F.monoBold, fontSize: 18 }}>{ch?.points ?? 0} pts</Text>
+            </View>
+            <Text style={{ color: C.redDim, fontSize: 13 }}>Earn points by finishing challenges.</Text>
+            {(Object.keys(PERKS) as PerkId[]).map((id) => {
+              const p = PERKS[id];
+              const owned = id === 'blur' ? ch?.blurNext : id === 'jam' ? ch?.jamNext : myPerks.lives >= 1;
+              const canBuy = !owned && (ch?.points ?? 0) >= p.cost;
+              return (
+                <View key={id} style={st.perkRow}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={{ color: C.white, fontSize: 15, fontWeight: '600' }}>{p.name}</Text>
+                    <Text style={{ color: C.redSoft, fontSize: 12, lineHeight: 17 }}>{p.desc}</Text>
+                  </View>
+                  {owned
+                    ? <Text style={{ color: C.red, fontFamily: F.mono, fontSize: 12, width: 84, textAlign: 'center' }}>READY</Text>
+                    : <Btn label={`${p.cost} PTS`} kind={canBuy ? 'primary' : 'secondary'} disabled={!canBuy} style={{ height: 44, width: 84, paddingHorizontal: 0 }} onPress={() => buy(id)} />}
+                </View>
+              );
+            })}
+            <Btn label="CLOSE" kind="secondary" onPress={() => setPerksOpen(false)} />
+          </View>
+        </View>
+      </Modal>
+
       {/* Chat */}
       <Modal visible={chatOpen} animationType="slide" onRequestClose={() => setChatOpen(false)}>
         <ChatPanel
@@ -274,6 +375,47 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
           </View>
         </View>
       </Modal>
+    </View>
+  );
+}
+
+function ChallengeCard(props: {
+  ch: ChallengeState; now: number; lives: number; shielded: number; onSkip: () => void; onPerks: () => void;
+}) {
+  const { ch, now } = props;
+  const a = ch.active;
+  const recent = ch.lastResult && now - ch.lastResult.at < 8000 ? ch.lastResult.text : null;
+  return (
+    <View style={[st.banner, { flexDirection: 'column', alignItems: 'stretch', gap: 6, paddingVertical: 10 }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Text style={[st.chTag, { flex: 1 }]} numberOfLines={1}>
+          {a ? `CHALLENGE · +${a.reward}` : 'CHALLENGES'}
+          {props.lives > 0 ? '  ·  EXTRA LIFE' : ''}
+          {props.shielded > 0 ? `  ·  SHIELD ${props.shielded}s` : ''}
+        </Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Perks, ${ch.points} points`} onPress={props.onPerks} style={st.ptsBtn}>
+          <Text style={{ color: C.red, fontFamily: F.monoBold, fontSize: 13 }}>{ch.points} PTS</Text>
+        </Pressable>
+      </View>
+      {a ? (
+        <>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+            <Text style={{ color: C.white, fontSize: 15, fontWeight: '600', flex: 1 }} numberOfLines={1}>{describe(a).title}</Text>
+            <Text style={{ color: C.red, fontFamily: F.monoBold, fontSize: 15 }}>{fmtClock(a.deadline - now)}</Text>
+          </View>
+          <Text style={{ color: C.redSoft, fontSize: 12 }} numberOfLines={1}>{ch.label || describe(a).detail}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={st.bar}><View style={[st.barFill, { width: `${Math.round(ch.fraction * 100)}%` }]} /></View>
+            <Pressable accessibilityRole="button" onPress={props.onSkip} hitSlop={8}>
+              <Text style={{ color: C.redDim, fontSize: 12, textDecorationLine: 'underline' }}>Skip</Text>
+            </Pressable>
+          </View>
+        </>
+      ) : (
+        <Text style={{ color: C.redSoft, fontSize: 13 }}>
+          {recent ?? (ch.cooldownUntil > now ? `Next challenge in ${fmtClock(ch.cooldownUntil - now)}` : 'Finding your next challenge…')}
+        </Text>
+      )}
     </View>
   );
 }
@@ -385,6 +527,11 @@ const st = themed(() => StyleSheet.create({
   bannerClock: { fontFamily: F.monoBold, fontSize: 28, color: C.red },
   warn: { color: C.redSoft, fontSize: 12, lineHeight: 17, backgroundColor: C.sheet, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: C.line },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 12, gap: 12, backgroundColor: C.sheet, borderTopWidth: 1, borderTopColor: C.line, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  chTag: { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5, color: C.redDim },
+  ptsBtn: { minHeight: 32, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: C.lineStrong, justifyContent: 'center' },
+  bar: { flex: 1, height: 5, borderRadius: 3, backgroundColor: C.line, overflow: 'hidden' },
+  barFill: { height: 5, borderRadius: 3, backgroundColor: C.red },
+  perkRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.line },
   iconBtn: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
   badge: { position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.fill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   badgeText: { color: C.fillText, fontSize: 10, fontWeight: '700' },

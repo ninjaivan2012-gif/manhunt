@@ -3,6 +3,7 @@ import { endGame, leaveGame, watchGame, watchPlayers } from './game/api';
 import { endAt, phase } from './game/logic';
 import type { Game, Player } from './game/types';
 import { startTracking, stopTracking } from './location/tracker';
+import { clearChallenge } from './challengeStore';
 import { cacheGame, clearGameState, getSession, setNumber, setSession } from './session';
 
 type Ctx = {
@@ -74,6 +75,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         setNumber('lastPing', null);
         setNumber('warnedPing', null);
         setNumber('outsideSince', null);
+        clearChallenge();
       }
     }
   }, [ph]);

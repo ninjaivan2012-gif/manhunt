@@ -1,7 +1,7 @@
 import { Camera, GeoJSONSource, Layer, Map, Marker, UserLocation, type CameraRef } from '@maplibre/maplibre-react-native';
 import React, { forwardRef, useImperativeHandle, useMemo, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { ring } from '../game/geo';
+import { circlePolygon, ring } from '../game/geo';
 import type { LatLng, NoGoZone } from '../game/types';
 import { C, F, mapStyle, themed, useTheme } from './theme';
 
@@ -10,7 +10,7 @@ export type MapMarker = {
   pos: LatLng;
   label: string;
   sub?: string;
-  kind: 'ping' | 'teammate' | 'point';
+  kind: 'ping' | 'teammate' | 'point' | 'goal';
 };
 
 export type GameMapHandle = { centerOn: (p: LatLng, zoom?: number) => void };
@@ -22,6 +22,10 @@ type Props = {
   noGo?: NoGoZone[];
   draft?: LatLng[]; // shape being drawn in the editor
   markers?: MapMarker[];
+  /** Round areas: a challenge zone, or a blurred ping ("somewhere in here"). */
+  circles?: { id: string; center: LatLng; radius: number; kind: 'goal' | 'blur' }[];
+  /** Small dots, e.g. challenge spots in the setup screen. */
+  dots?: LatLng[];
   onPress?: (p: LatLng) => void;
 };
 
@@ -55,6 +59,14 @@ export const GameMap = forwardRef<GameMapHandle, Props>(function GameMap(props, 
   const shadeFC = useMemo(() => outsideFC(border), [border]);
   const nextFC = useMemo(() => polygonFC([props.nextBorder ?? []]), [props.nextBorder]);
   const noGoFC = useMemo(() => polygonFC((props.noGo ?? []).map((z) => z.points)), [props.noGo]);
+  const circles = props.circles ?? [];
+  const goalFC = useMemo(() => polygonFC(circles.filter((c) => c.kind === 'goal').map((c) => circlePolygon(c.center, c.radius, 32))), [circles]);
+  const blurFC = useMemo(() => polygonFC(circles.filter((c) => c.kind === 'blur').map((c) => circlePolygon(c.center, c.radius, 32))), [circles]);
+  const dots = props.dots ?? [];
+  const dotsFC = useMemo<GeoJSON.FeatureCollection>(() => ({
+    type: 'FeatureCollection',
+    features: dots.map((p, i) => ({ type: 'Feature', id: i, properties: {}, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } })),
+  }), [dots]);
   const draft = props.draft ?? [];
   const draftFC = useMemo<GeoJSON.FeatureCollection>(() => ({
     type: 'FeatureCollection',
@@ -92,6 +104,17 @@ export const GameMap = forwardRef<GameMapHandle, Props>(function GameMap(props, 
       <GeoJSONSource id="border" data={borderFC}>
         <Layer type="line" id="border-line" style={{ lineColor: C.red, lineWidth: 2.5 }} />
       </GeoJSONSource>
+      <GeoJSONSource id="blur" data={blurFC}>
+        <Layer type="fill" id="blur-fill" style={{ fillColor: C.red, fillOpacity: 0.14 }} />
+        <Layer type="line" id="blur-line" style={{ lineColor: C.red, lineWidth: 1.5, lineDasharray: [1, 2] }} />
+      </GeoJSONSource>
+      <GeoJSONSource id="goal" data={goalFC}>
+        <Layer type="fill" id="goal-fill" style={{ fillColor: C.fill, fillOpacity: 0.18 }} />
+        <Layer type="line" id="goal-line" style={{ lineColor: C.red, lineWidth: 2.5, lineDasharray: [2, 1] }} />
+      </GeoJSONSource>
+      <GeoJSONSource id="dots" data={dotsFC}>
+        <Layer type="circle" id="dots-circle" style={{ circleRadius: 4, circleColor: C.red, circleStrokeColor: C.halo, circleStrokeWidth: 1.5 }} />
+      </GeoJSONSource>
       <GeoJSONSource id="draft" data={draftFC}>
         <Layer type="line" id="draft-line" style={{ lineColor: C.fillText, lineWidth: 2, lineDasharray: [2, 2] }} />
       </GeoJSONSource>
@@ -105,7 +128,7 @@ export const GameMap = forwardRef<GameMapHandle, Props>(function GameMap(props, 
       {(props.markers ?? []).map((m) => (
         <Marker key={m.id} id={m.id} lngLat={[m.pos.lng, m.pos.lat]} anchor="left" offset={[-8, 0]}>
           <View style={st.markerRow}>
-            {m.kind === 'ping' ? <View style={st.diamond} /> : <View style={st.mate} />}
+            {m.kind === 'ping' ? <View style={st.diamond} /> : m.kind === 'goal' ? <View style={st.goal}><View style={st.goalDot} /></View> : <View style={st.mate} />}
             <View>
               <Text style={[st.name, m.kind === 'teammate' && { color: C.redSoft, fontWeight: '400' }]}>{m.label}</Text>
               {m.sub ? <Text style={st.sub}>{m.sub}</Text> : null}
@@ -123,6 +146,8 @@ const st = themed(() => StyleSheet.create({
   markerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   diamond: { width: 13, height: 13, transform: [{ rotate: '45deg' }], borderWidth: 2, borderColor: C.red, backgroundColor: C.surface2 },
   mate: { width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: C.redSoft, backgroundColor: C.bg },
+  goal: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: C.red, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' },
+  goalDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.red },
   draftDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: C.fillText, borderWidth: 2, borderColor: C.danger },
   name: { color: C.red, fontSize: 13, fontWeight: '600', textShadowColor: C.halo, textShadowRadius: 3 },
   sub: { color: C.redDim, fontSize: 10, fontFamily: F.mono, textShadowColor: C.halo, textShadowRadius: 3 },

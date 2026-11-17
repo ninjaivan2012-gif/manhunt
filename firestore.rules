@@ -80,6 +80,18 @@ service cloud.firestore {
         allow create: if inGame(code) && exists(playerPath(code, pid)) && okMsg();
       }
 
+      // Extra lives. A runner can give themselves 1 (bought with challenge points).
+      // A hunter can only take it away by scanning that runner's real tag code.
+      match /perks/{pid} {
+        allow read: if inGame(code);
+        allow create, update: if inGame(code) && pid == request.auth.uid && request.resource.data.lives <= 1;
+        allow update: if inGame(code) && myTeam(code) == 'hunter'
+          && onlyChanges(['lives', 'shieldUntil', 'hitSecret'])
+          && request.resource.data.lives == resource.data.lives - 1
+          && request.resource.data.hitSecret == get(/databases/$(database)/documents/games/$(code)/secrets/$(pid)).data.secret;
+        allow delete: if signedIn() && isHost(code);
+      }
+
       match /pings/{pid} {
         allow read: if signedIn();
         allow write: if signedIn() && pid == request.auth.uid;

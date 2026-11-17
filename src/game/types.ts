@@ -13,6 +13,7 @@ export type Settings = {
   finalScale: number;     // final border size as a fraction of the starting size (0.15 = 15%)
   graceSec: number;       // seconds you may stay outside the border before you're out
   voice: VoiceMode;
+  challenges?: boolean; // runners get challenges that earn points for perks
 };
 
 export type Border = {
@@ -34,6 +35,9 @@ export type Game = {
   startedAt: number | null; // ms timestamp when the host pressed Start
   endedAt: number | null;
   winner: Team | null;
+  /** Safe places for challenges (not in water or buildings), found from map data when the border is saved. */
+  spots?: LatLng[];
+  spotsStatus?: 'loading' | 'ready' | 'few' | 'failed';
 };
 
 export type Player = {
@@ -44,8 +48,15 @@ export type Player = {
   joinedAt: number;
 };
 
-export type LivePos = { id: string; name: string; team: Team; lat: number; lng: number; at: number };
-export type Ping = { id: string; name: string; lat: number; lng: number; at: number };
+export type LivePos = { id: string; name: string; team: Team; lat: number; lng: number; at: number; goal?: LatLng };
+export type Ping = {
+  id: string; name: string; lat?: number; lng?: number; at: number;
+  radius?: number;   // "blurred" ping: the runner is somewhere in this circle (meters)
+  jammed?: boolean;  // the runner jammed this ping; the last position shown is old
+};
+
+/** Extra-life state for a runner. Readable by everyone so hunters know when a tag only costs a life. */
+export type Perks = { lives: number; shieldUntil: number; hitSecret?: string };
 
 /** Who a message goes to: your own team, every player, or one player (any team). */
 export type MsgTarget = { kind: 'team' } | { kind: 'all' } | { kind: 'player'; id: string; name: string };
@@ -71,4 +82,5 @@ export const DEFAULT_SETTINGS: Settings = {
   finalScale: 0.15,
   graceSec: 30,
   voice: 'both',
+  challenges: true,
 };

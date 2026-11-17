@@ -4,6 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Route } from '../../App';
 import { useGame } from '../GameContext';
 import { kickPlayer, setTeam, shuffleTeams, startGame, updateSettings } from '../game/api';
+import { refreshSpots } from '../game/spotsJob';
+import { PERKS } from '../game/challenges';
 import { approxRadius } from '../game/geo';
 import type { Player, Settings, Team, VoiceMode } from '../game/types';
 import { Btn, Chip, Label, Stepper, ThemeToggle } from '../ui/kit';
@@ -124,6 +126,30 @@ export function LobbyScreen({ go }: { go: (r: Route) => void }) {
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
             {voiceOpts.map((o) => <Chip key={o.v} label={o.label} active={s.voice === o.v} onPress={isHost ? () => set({ voice: o.v }) : undefined} />)}
           </View>
+        </View>
+
+        <View style={st.section}>
+          <Label>CHALLENGES</Label>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Chip label="On" active={!!s.challenges} onPress={isHost ? () => set({ challenges: true }) : undefined} />
+            <Chip label="Off" active={!s.challenges} onPress={isHost ? () => set({ challenges: false }) : undefined} />
+          </View>
+          <Text style={{ color: C.redSoft, fontSize: 13, lineHeight: 19 }}>
+            Runners get their own challenges (reach a spot, hold a zone, checkpoint runs, keep moving) to earn points for perks:
+            {' '}{PERKS.blur.name.toLowerCase()} ({PERKS.blur.cost}), {PERKS.jam.name.toLowerCase()} ({PERKS.jam.cost}), {PERKS.life.name.toLowerCase()} ({PERKS.life.cost}).
+          </Text>
+          {!!s.challenges && game.border && (
+            <Text style={{ color: game.spotsStatus === 'failed' || game.spotsStatus === 'few' ? C.red : C.redDim, fontSize: 13, lineHeight: 19 }}>
+              {game.spotsStatus === 'loading' ? 'Finding safe challenge spots from the map…'
+                : game.spotsStatus === 'failed' ? "Couldn't load map data, so only \"keep moving\" challenges will show up."
+                : game.spotsStatus === 'few' ? `Only ${game.spots?.length ?? 0} safe spots found, so challenges will repeat. Add more in Edit border → Spots.`
+                : game.spots?.length ? `${game.spots.length} safe challenge spots (no water, no houses).`
+                : 'No challenge spots yet.'}
+            </Text>
+          )}
+          {isHost && !!s.challenges && game.border && game.spotsStatus !== 'ready' && (
+            <Btn label="FIND SPOTS AGAIN" kind="secondary" style={{ height: 48 }} onPress={() => refreshSpots(game)} />
+          )}
         </View>
       </ScrollView>
 

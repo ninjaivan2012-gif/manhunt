@@ -4,14 +4,15 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Route } from '../../App';
 import { useGame } from '../GameContext';
-import { setBorder, setNoGo } from '../game/api';
-import { approxRadius, centroid, circlePolygon } from '../game/geo';
+import { setBorder, setNoGo, setSpots } from '../game/api';
+import { refreshSpots } from '../game/spotsJob';
+import { approxRadius, centroid, circlePolygon, distanceM, pointInPolygon } from '../game/geo';
 import type { LatLng, NoGoZone } from '../game/types';
 import { GameMap, type GameMapHandle } from '../ui/GameMap';
 import { Btn, Stepper } from '../ui/kit';
 import { C, themed } from '../ui/theme';
 
-type Mode = 'circle' | 'custom' | 'nogo';
+type Mode = 'circle' | 'custom' | 'nogo' | 'spots';
 
 export function SetupScreen({ go }: { go: (r: Route) => void }) {
   const { game } = useGame();
@@ -28,6 +29,11 @@ export function SetupScreen({ go }: { go: (r: Route) => void }) {
   const [draftZone, setDraftZone] = useState<LatLng[]>([]);
   const [shape, setShape] = useState<'circle' | 'custom'>(existing?.shape ?? 'circle');
   const [saving, setSaving] = useState(false);
+  const [spots, setSpotList] = useState<LatLng[]>(game?.spots ?? []);
+  const [spotsEdited, setSpotsEdited] = useState(false);
+
+  // Keep the list in sync while the host's phone is still finding spots.
+  useEffect(() => { if (!spotsEdited) setSpotList(game?.spots ?? []); }, [game?.spots]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     (async () => {
@@ -48,7 +54,18 @@ export function SetupScreen({ go }: { go: (r: Route) => void }) {
     [shape, center, radius, customPts],
   );
 
+  const areaChanged = JSON.stringify(borderPts) !== JSON.stringify(existing?.points ?? [])
+    || JSON.stringify(zones) !== JSON.stringify(game?.noGo ?? []);
+
   function onMapPress(p: LatLng) {
+    if (mode === 'spots') {
+      if (areaChanged) return;
+      const near = spots.findIndex((x) => distanceM(x, p) < 20);
+      if (near >= 0) setSpotList((l) => l.filter((_, i) => i !== near));
+      else if (borderPts.length >= 3 && pointInPolygon(p, borderPts)) setSpotList((l) => [...l, p]);
+      setSpotsEdited(true);
+      return;
+    }
     if (mode === 'circle') { setShape('circle'); setCenter(p); }
     else if (mode === 'custom') { setShape('custom'); setCustomPts((pts) => [...pts, p]); }
     else setDraftZone((pts) => [...pts, p]);
@@ -67,6 +84,12 @@ export function SetupScreen({ go }: { go: (r: Route) => void }) {
     try {
       await setBorder(game!.code, { shape, points: borderPts });
       await setNoGo(game!.code, zones);
+      if (areaChanged || !game!.spots?.length) {
+        // New area: find safe challenge spots again (runs in the background).
+        refreshSpots({ ...game!, noGo: zones }, borderPts, zones);
+      } else if (spotsEdited) {
+        await setSpots(game!.code, spots, spots.length >= 12 ? 'ready' : 'few');
+      }
       go('lobby');
     } catch {
       Alert.alert('Could not save', 'Check your internet and try again.');
@@ -81,7 +104,10 @@ export function SetupScreen({ go }: { go: (r: Route) => void }) {
   const hint =
     mode === 'circle' ? 'Tap the map to move the center of the circle.'
     : mode === 'custom' ? `Tap the map to add corners (${customPts.length} so far).`
-    : `Tap around an area players can't enter, like a pond (${draftZone.length} points).`;
+    : mode === 'nogo' ? `Tap around an area players can't enter, like a pond (${draftZone.length} points).`
+    : areaChanged ? 'Save the border first. Safe spots are found for the new area automatically.'
+    : game.spotsStatus === 'loading' ? 'Finding safe spots from the map…'
+    : `${spots.length} challenge spots. Tap a dot to remove it (for example, if it's in a pool), or tap empty ground to add one.`;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -90,6 +116,7 @@ export function SetupScreen({ go }: { go: (r: Route) => void }) {
         initialCenter={start}
         border={borderPts}
         noGo={zones}
+        dots={mode === 'spots' && !areaChanged ? spots : undefined}
         draft={mode === 'custom' && shape === 'custom' && customPts.length < 3 ? customPts : mode === 'nogo' ? draftZone : []}
         onPress={onMapPress}
       />
@@ -97,10 +124,10 @@ export function SetupScreen({ go }: { go: (r: Route) => void }) {
       <View style={[st.topBar, { top: insets.top + 10 }]}>
         <Pressable accessibilityLabel="Back" onPress={() => go('lobby')} style={st.square}><Text style={{ color: C.redSoft, fontSize: 20 }}>‹</Text></Pressable>
         <View style={st.segment}>
-          {(['circle', 'custom', 'nogo'] as Mode[]).map((m) => (
+          {(['circle', 'custom', 'nogo', 'spots'] as Mode[]).map((m) => (
             <Pressable key={m} onPress={() => pickMode(m)} style={[st.segBtn, mode === m && { backgroundColor: C.selected }]} accessibilityRole="button">
               <Text style={{ color: mode === m ? C.red : C.redDim, fontSize: 13, fontWeight: mode === m ? '600' : '400' }}>
-                {m === 'circle' ? 'Circle' : m === 'custom' ? 'Custom' : '+ No-go'}
+                {m === 'circle' ? 'Circle' : m === 'custom' ? 'Custom' : m === 'nogo' ? '+ No-go' : 'Spots'}
               </Text>
             </Pressable>
           ))}

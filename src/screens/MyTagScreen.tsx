@@ -15,7 +15,12 @@ export function MyTagScreen({ go }: { go: (r: Route) => void }) {
   const [payload, setPayload] = useState<string | null>(null);
 
   useEffect(() => {
-    if (session) getMySecret(session.code, session.uid).then((s) => setPayload(tagPayload(session.code, session.uid, s))).catch(() => {});
+    if (!session) return;
+    // Re-check every few seconds: the code changes after an extra life is used up.
+    const load = () => getMySecret(session.code, session.uid).then((s) => setPayload(tagPayload(session.code, session.uid, s))).catch(() => {});
+    load();
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
   }, [session]);
 
   // Once you've been tagged, go back to the map.

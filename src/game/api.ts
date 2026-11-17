@@ -2,7 +2,7 @@ import {
   addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 import { db, ensureSignedIn } from '../firebase';
-import type { Border, Game, LivePos, NoGoZone, Ping, Player, PlayerStatus, Settings, Team, Msg, MsgTarget } from './types';
+import type { Border, Game, LatLng, LivePos, NoGoZone, Perks, Ping, Player, PlayerStatus, Settings, Team, Msg, MsgTarget } from './types';
 import { DEFAULT_SETTINGS } from './types';
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I/L, so codes are easy to read out loud
@@ -16,8 +16,10 @@ const teamMsgs = (code: string, team: Team) => collection(db, 'games', code, 'te
 const allMsgs = (code: string) => collection(db, 'games', code, 'msgs');
 const inbox = (code: string, uid: string) => collection(db, 'games', code, 'inbox', uid, 'msgs');
 const pingsCol = (code: string) => collection(db, 'games', code, 'pings');
+const perksRef = (code: string, uid: string) => doc(db, 'games', code, 'perks', uid);
 
-async function makeSecret(code: string, uid: string): Promise<string> {
+/** Makes a new tag code secret. Also used after an extra life is spent, so an old scan can't be reused. */
+export async function makeSecret(code: string, uid: string): Promise<string> {
   const secret = randomSecret();
   await setDoc(doc(db, 'games', code, 'secrets', uid), { secret });
   return secret;
@@ -94,6 +96,8 @@ export function watchMsgs(code: string, team: Team, uid: string, since: number, 
 export const updateSettings = (code: string, settings: Settings) => updateDoc(gameRef(code), { settings });
 export const setBorder = (code: string, border: Border | null) => updateDoc(gameRef(code), { border });
 export const setNoGo = (code: string, noGo: NoGoZone[]) => updateDoc(gameRef(code), { noGo });
+export const setSpots = (code: string, spots: LatLng[], spotsStatus: NonNullable<Game['spotsStatus']>) =>
+  updateDoc(gameRef(code), { spots, spotsStatus });
 export const setTeam = (code: string, playerId: string, team: Team) => updateDoc(doc(playersCol(code), playerId), { team });
 export const kickPlayer = (code: string, playerId: string) => deleteDoc(doc(playersCol(code), playerId));
 export const hostEliminate = (code: string, playerId: string) => updateDoc(doc(playersCol(code), playerId), { status: 'caught' });
@@ -126,16 +130,39 @@ export async function backToLobby(code: string) {
   await Promise.all(pings.docs.map((d) => deleteDoc(d.ref)));
   const tags = await getDocs(collection(db, 'games', code, 'tags'));
   await Promise.all(tags.docs.map((d) => deleteDoc(d.ref)));
+  const perks = await getDocs(collection(db, 'games', code, 'perks'));
+  await Promise.all(perks.docs.map((d) => deleteDoc(d.ref)));
 }
 
 // ---- Player actions ----
 export const leaveGame = (code: string, uid: string) => deleteDoc(doc(playersCol(code), uid));
 
-export const writeLive = (code: string, team: Team, uid: string, name: string, lat: number, lng: number) =>
-  setDoc(doc(liveCol(code, team), uid), { name, team, lat, lng, at: Date.now() });
+export const writeLive = (code: string, team: Team, uid: string, name: string, lat: number, lng: number, goal?: LatLng | null) =>
+  setDoc(doc(liveCol(code, team), uid), goal ? { name, team, lat, lng, goal, at: Date.now() } : { name, team, lat, lng, at: Date.now() });
 
-export const writePing = (code: string, uid: string, name: string, lat: number, lng: number) =>
-  setDoc(doc(pingsCol(code), uid), { name, lat, lng, at: Date.now() });
+/** Teammates' current challenge spots (runners only see their own team's live data). */
+export async function getTeamGoals(code: string, team: Team, myUid: string): Promise<LatLng[]> {
+  const snap = await getDocs(liveCol(code, team));
+  return snap.docs.filter((d) => d.id !== myUid).map((d) => (d.data() as { goal?: LatLng }).goal).filter((g): g is LatLng => !!g);
+}
+
+export const writePing = (code: string, uid: string, name: string, lat: number, lng: number, radius?: number) =>
+  setDoc(doc(pingsCol(code), uid), radius ? { name, lat, lng, radius, at: Date.now() } : { name, lat, lng, at: Date.now() });
+
+/** A jammed ping: hunters keep seeing the old position, marked as jammed. */
+export const writeJammedPing = (code: string, uid: string, name: string) =>
+  setDoc(doc(pingsCol(code), uid), { name, jammed: true, at: Date.now() }, { merge: true });
+
+// ---- Extra lives ----
+export function watchPerks(code: string, uid: string, cb: (p: Perks) => void) {
+  return onSnapshot(perksRef(code, uid), (s) => cb((s.data() as Perks | undefined) ?? { lives: 0, shieldUntil: 0 }), () => {});
+}
+export async function addLife(code: string, uid: string) {
+  const s = await getDoc(perksRef(code, uid));
+  const cur = (s.data() as Perks | undefined) ?? { lives: 0, shieldUntil: 0 };
+  if (cur.lives >= 1) throw new Error('You already have an extra life.');
+  await setDoc(perksRef(code, uid), { lives: 1, shieldUntil: cur.shieldUntil ?? 0 }, { merge: true });
+}
 
 export const setMyStatus = (code: string, uid: string, status: PlayerStatus) =>
   updateDoc(doc(playersCol(code), uid), { status });
@@ -148,11 +175,26 @@ export function parseTag(data: string): { code: string; runnerId: string; secret
   return m ? { code: m[1], runnerId: m[2], secret: m[3] } : null;
 }
 
-export async function tagRunner(code: string, hunterId: string, runnerId: string, secret: string) {
+export type TagResult = { kind: 'caught' } | { kind: 'life' } | { kind: 'shielded'; secondsLeft: number };
+
+/**
+ * Tags a runner. If they have an extra life, it's used up instead and they get a short
+ * shield to escape. During that shield they can't be tagged.
+ */
+export async function tagRunner(code: string, hunterId: string, runnerId: string, secret: string): Promise<TagResult> {
+  const ps = await getDoc(perksRef(code, runnerId));
+  const perks = ps.data() as Perks | undefined;
+  const now = Date.now();
+  if (perks && perks.shieldUntil > now) return { kind: 'shielded', secondsLeft: Math.ceil((perks.shieldUntil - now) / 1000) };
+  if (perks && perks.lives > 0) {
+    await updateDoc(perksRef(code, runnerId), { lives: perks.lives - 1, shieldUntil: now + 60_000, hitSecret: secret });
+    return { kind: 'life' };
+  }
   const batch = writeBatch(db);
   batch.set(doc(db, 'games', code, 'tags', runnerId), { hunterId, secret, at: Date.now() });
   batch.update(doc(playersCol(code), runnerId), { status: 'caught' });
   await batch.commit();
+  return { kind: 'caught' };
 }
 
 export function targetLabel(t: MsgTarget, myTeam: Team): string {

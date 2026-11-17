@@ -40,5 +40,5 @@ export const setNumber = (key: keyof typeof K, n: number | null) =>
   n == null ? AsyncStorage.removeItem(K[key]) : AsyncStorage.setItem(K[key], String(n));
 
 export async function clearGameState() {
-  await AsyncStorage.multiRemove([K.session, K.game, K.outsideSince, K.lastPing, K.warnedPing, K.lastLive]);
+  await AsyncStorage.multiRemove([K.session, K.game, K.outsideSince, K.lastPing, K.warnedPing, K.lastLive, 'mh.challenge']);
 }
