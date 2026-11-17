@@ -38,7 +38,12 @@ export type Game = {
   /** Safe places for challenges (not in water or buildings), found from map data when the border is saved. */
   spots?: LatLng[];
   spotsStatus?: 'loading' | 'ready' | 'few' | 'failed';
+  spotsAt?: number;     // when the current spot search started or finished
+  spotsArea?: string;   // which saved area the spots came from
 };
+
+/** Spots for a whole neighborhood, found once and reused by every later game in that area. */
+export type SpotArea = { id: string; center: LatLng; radius: number; spots: LatLng[]; createdAt: number; source: string };
 
 export type Player = {
   id: string;

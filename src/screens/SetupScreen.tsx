@@ -4,8 +4,8 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Route } from '../../App';
 import { useGame } from '../GameContext';
-import { setBorder, setNoGo, setSpots } from '../game/api';
-import { refreshSpots } from '../game/spotsJob';
+import { setBorder, setNoGo } from '../game/api';
+import { refreshSpots, saveSpotEdits } from '../game/spotsJob';
 import { approxRadius, centroid, circlePolygon, distanceM, pointInPolygon } from '../game/geo';
 import type { LatLng, NoGoZone } from '../game/types';
 import { GameMap, type GameMapHandle } from '../ui/GameMap';
@@ -88,7 +88,7 @@ export function SetupScreen({ go }: { go: (r: Route) => void }) {
         // New area: find safe challenge spots again (runs in the background).
         refreshSpots({ ...game!, noGo: zones }, borderPts, zones);
       } else if (spotsEdited) {
-        await setSpots(game!.code, spots, spots.length >= 12 ? 'ready' : 'few');
+        await saveSpotEdits(game!, spots); // also remembered for future games in this area
       }
       go('lobby');
     } catch {
@@ -145,6 +145,13 @@ export function SetupScreen({ go }: { go: (r: Route) => void }) {
             <Btn label="UNDO" kind="secondary" style={st.flexBtn} onPress={() => setCustomPts((p) => p.slice(0, -1))} disabled={!customPts.length} />
             <Btn label="CLEAR" kind="secondary" style={st.flexBtn} onPress={() => setCustomPts([])} disabled={!customPts.length} />
           </View>
+        )}
+        {mode === 'spots' && !areaChanged && game.spotsStatus !== 'loading' && (
+          <Btn label="RESCAN MAP FOR SPOTS" kind="ghost" onPress={() =>
+            Alert.alert('Rescan the map?', 'This replaces the saved spots for this area, including ones you added or removed by hand.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Rescan', onPress: () => { setSpotsEdited(false); refreshSpots(game, borderPts, zones, { force: true }); } },
+            ])} />
         )}
         {mode === 'nogo' && (
           <>

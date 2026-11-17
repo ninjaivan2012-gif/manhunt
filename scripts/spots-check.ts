@@ -1,31 +1,25 @@
-// Checks the challenge spot finder against real OpenStreetMap data (run in CI).
+// Checks the challenge spot finder against real map data (run in CI).
 // Usage: npx tsx scripts/spots-check.ts <lat> <lng> <radiusMeters>
-import { buildSpots, fetchOsm, type OsmElement } from '../src/game/spots';
+import { fetchTileFeatures, spotsFromFeatures } from '../src/game/spots';
 import { circlePolygon, nearestOnEdge, pointInPolygon } from '../src/game/geo';
 
 const [lat, lng, r] = process.argv.slice(2).map(Number);
-const border = circlePolygon({ lat, lng }, r, 64);
+const area = circlePolygon({ lat, lng }, r, 64);
 
 (async () => {
-  let els: OsmElement[];
-  try {
-    els = await fetchOsm(border);
-  } catch (e) {
-    // Shared CI machines are often rate-limited by the free map servers; that's not a code failure.
-    console.log(`SPOTCHECK skipped: map servers busy (${(e as Error).message})`);
-    return;
-  }
-  const t = Date.now();
-  const spots = buildSpots(els, border, []);
-  const ms = Date.now() - t;
-  const poly = (e: OsmElement) => (e.geometry ?? []).map((n) => ({ lat: n.lat, lng: n.lon }));
-  const water = els.filter((e) => e.tags?.natural === 'water' || e.tags?.leisure === 'swimming_pool').map(poly).filter((p) => p.length > 3);
-  const bldg = els.filter((e) => e.tags?.building).map(poly).filter((p) => p.length > 3);
-  let inWater = 0, inBldg = 0;
+  const t0 = Date.now();
+  const f = await fetchTileFeatures(area);
+  const tDownload = Date.now() - t0;
+  const t1 = Date.now();
+  const spots = spotsFromFeatures(f, area, [], 2500);
+  const tPick = Date.now() - t1;
+  let inWater = 0, inBldg = 0, nearBusy = 0;
   for (const s of spots) {
-    if (water.some((w) => pointInPolygon(s, w) || nearestOnEdge(s, w).distance < 5.5)) inWater++;
-    if (bldg.some((b) => pointInPolygon(s, b) || nearestOnEdge(s, b).distance < 4.5)) inBldg++;
+    if (f.water.some((w) => w.length > 3 && pointInPolygon(s, w))) inWater++;
+    if (f.buildings.some((b) => b.length > 3 && pointInPolygon(s, b))) inBldg++;
+    if (f.busyRoads.some((l) => l.some((_, i) => i < l.length - 1 && nearestOnEdge(s, [l[i], l[i + 1]]).distance < 17))) nearBusy++;
   }
-  console.log(`SPOTCHECK elements=${els.length} buildings=${bldg.length} water=${water.length} spots=${spots.length} inWater=${inWater} inBuildings=${inBldg} ms=${ms}`);
-  if (inWater || inBldg) process.exit(1);
+  console.log(`SPOTCHECK buildings=${f.buildings.length} water=${f.water.length} paths=${f.paths.length} streets=${f.streets.length} parks=${f.open.length} busyRoads=${f.busyRoads.length}`);
+  console.log(`SPOTCHECK spots=${spots.length} inWater=${inWater} inBuildings=${inBldg} nearBusyRoad=${nearBusy} download=${tDownload}ms pick=${tPick}ms`);
+  if (inWater || inBldg || nearBusy || spots.length < 20) process.exit(1);
 })();

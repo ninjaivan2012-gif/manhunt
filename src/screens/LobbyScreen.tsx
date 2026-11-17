@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Route } from '../../App';
 import { useGame } from '../GameContext';
 import { kickPlayer, setTeam, shuffleTeams, startGame, updateSettings } from '../game/api';
-import { refreshSpots } from '../game/spotsJob';
+import { refreshSpots, STALE_SEARCH_MS } from '../game/spotsJob';
 import { PERKS } from '../game/challenges';
 import { approxRadius } from '../game/geo';
 import type { Player, Settings, Team, VoiceMode } from '../game/types';
@@ -21,6 +21,8 @@ export function LobbyScreen({ go }: { go: (r: Route) => void }) {
   if (!game || !session) return <View style={{ flex: 1, backgroundColor: C.bg }} />;
 
   const s = game.settings;
+  // A search that never finished (for example, the host closed the app) counts as failed.
+  const spotsStatus = game.spotsStatus === 'loading' && Date.now() - (game.spotsAt ?? 0) > STALE_SEARCH_MS ? 'failed' : game.spotsStatus;
   const set = (patch: Partial<Settings>) => updateSettings(game.code, { ...s, ...patch }).catch(() => {});
   const hunters = players.filter((p) => p.team === 'hunter');
   const runners = players.filter((p) => p.team === 'runner');
@@ -139,15 +141,15 @@ export function LobbyScreen({ go }: { go: (r: Route) => void }) {
             {' '}{PERKS.blur.name.toLowerCase()} ({PERKS.blur.cost}), {PERKS.jam.name.toLowerCase()} ({PERKS.jam.cost}), {PERKS.life.name.toLowerCase()} ({PERKS.life.cost}).
           </Text>
           {!!s.challenges && game.border && (
-            <Text style={{ color: game.spotsStatus === 'failed' || game.spotsStatus === 'few' ? C.red : C.redDim, fontSize: 13, lineHeight: 19 }}>
-              {game.spotsStatus === 'loading' ? 'Finding safe challenge spots from the map…'
-                : game.spotsStatus === 'failed' ? "Couldn't load map data, so only \"keep moving\" challenges will show up."
-                : game.spotsStatus === 'few' ? `Only ${game.spots?.length ?? 0} safe spots found, so challenges will repeat. Add more in Edit border → Spots.`
-                : game.spots?.length ? `${game.spots.length} safe challenge spots (no water, no houses).`
+            <Text style={{ color: spotsStatus === 'failed' || spotsStatus === 'few' ? C.red : C.redDim, fontSize: 13, lineHeight: 19 }}>
+              {spotsStatus === 'loading' ? 'Finding safe challenge spots from the map (usually a few seconds). You can start the game anyway.'
+                : spotsStatus === 'failed' ? "Couldn't load map data, so only \"keep moving\" challenges will show up. Try again on Wi-Fi."
+                : spotsStatus === 'few' ? `Only ${game.spots?.length ?? 0} safe spots found, so challenges will repeat. Add more in Edit border → Spots.`
+                : game.spots?.length ? `${game.spots.length} safe challenge spots (no water, no houses). Saved for your area, so next time is instant.`
                 : 'No challenge spots yet.'}
             </Text>
           )}
-          {isHost && !!s.challenges && game.border && game.spotsStatus !== 'ready' && (
+          {isHost && !!s.challenges && game.border && spotsStatus !== 'ready' && spotsStatus !== 'loading' && (
             <Btn label="FIND SPOTS AGAIN" kind="secondary" style={{ height: 48 }} onPress={() => refreshSpots(game)} />
           )}
         </View>

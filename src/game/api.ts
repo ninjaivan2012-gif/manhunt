@@ -2,7 +2,7 @@ import {
   addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 import { db, ensureSignedIn } from '../firebase';
-import type { Border, Game, LatLng, LivePos, NoGoZone, Perks, Ping, Player, PlayerStatus, Settings, Team, Msg, MsgTarget } from './types';
+import type { Border, Game, LatLng, LivePos, SpotArea, NoGoZone, Perks, Ping, Player, PlayerStatus, Settings, Team, Msg, MsgTarget } from './types';
 import { DEFAULT_SETTINGS } from './types';
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I/L, so codes are easy to read out loud
@@ -96,8 +96,30 @@ export function watchMsgs(code: string, team: Team, uid: string, since: number, 
 export const updateSettings = (code: string, settings: Settings) => updateDoc(gameRef(code), { settings });
 export const setBorder = (code: string, border: Border | null) => updateDoc(gameRef(code), { border });
 export const setNoGo = (code: string, noGo: NoGoZone[]) => updateDoc(gameRef(code), { noGo });
-export const setSpots = (code: string, spots: LatLng[], spotsStatus: NonNullable<Game['spotsStatus']>) =>
-  updateDoc(gameRef(code), { spots, spotsStatus });
+export const setSpots = (code: string, spots: LatLng[], spotsStatus: NonNullable<Game['spotsStatus']>, spotsArea?: string) =>
+  updateDoc(gameRef(code), spotsArea !== undefined
+    ? { spots, spotsStatus, spotsArea, spotsAt: Date.now() }
+    : { spots, spotsStatus, spotsAt: Date.now() });
+
+// ---- Saved neighborhood spots (shared by every game in that area) ----
+const areasCol = () => collection(db, 'spotAreas');
+export async function listSpotAreas(): Promise<SpotArea[]> {
+  const s = await getDocs(areasCol());
+  return s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SpotArea, 'id'>) }));
+}
+export async function saveSpotArea(area: Omit<SpotArea, 'id'>): Promise<string> {
+  const ref = await addDoc(areasCol(), area);
+  return ref.id;
+}
+/** Applies the host's manual changes (removed or added spots) to a saved area. */
+export async function patchSpotArea(id: string, removed: LatLng[], added: LatLng[], near: (a: LatLng, b: LatLng) => boolean) {
+  const ref = doc(db, 'spotAreas', id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const cur = (snap.data() as SpotArea).spots ?? [];
+  const kept = cur.filter((s) => !removed.some((r) => near(r, s)));
+  await updateDoc(ref, { spots: [...kept, ...added].slice(0, 2500) });
+}
 export const setTeam = (code: string, playerId: string, team: Team) => updateDoc(doc(playersCol(code), playerId), { team });
 export const kickPlayer = (code: string, playerId: string) => deleteDoc(doc(playersCol(code), playerId));
 export const hostEliminate = (code: string, playerId: string) => updateDoc(doc(playersCol(code), playerId), { status: 'caught' });

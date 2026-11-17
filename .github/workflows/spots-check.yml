@@ -16,7 +16,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+      - run: npm ci
       - name: Lake Eola Park, Orlando (lake, buildings, paths)
-        run: npx --yes tsx scripts/spots-check.ts 28.5434 -81.3730 350
+        run: npx tsx scripts/spots-check.ts 28.5434 -81.3730 900
       - name: Suburban neighborhood with ponds, Winter Garden FL
-        run: npx --yes tsx scripts/spots-check.ts 28.5653 -81.5862 400
+        run: npx tsx scripts/spots-check.ts 28.5653 -81.5862 1400

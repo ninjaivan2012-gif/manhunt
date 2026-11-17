@@ -14,6 +14,12 @@ service cloud.firestore {
     function myTeam(code) { return get(playerPath(code, request.auth.uid)).data.team; }
     function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
 
+    // Challenge spots saved per neighborhood, reused by every later game there.
+    match /spotAreas/{id} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && request.resource.data.spots.size() <= 2500;
+    }
+
     match /games/{code} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.hostId == request.auth.uid;
