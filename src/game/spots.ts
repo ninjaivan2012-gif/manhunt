@@ -178,7 +178,7 @@ export async function fetchOsm(border: LatLng[]): Promise<OsmElement[]> {
     try {
       const res = await fetch(server, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Manhunt-game/0.1 (github.com/ninjaivan2012-gif/manhunt)' },
         body: `data=${encodeURIComponent(q)}`,
         signal: ctrl.signal,
       });

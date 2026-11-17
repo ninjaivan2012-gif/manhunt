@@ -7,7 +7,14 @@ const [lat, lng, r] = process.argv.slice(2).map(Number);
 const border = circlePolygon({ lat, lng }, r, 64);
 
 (async () => {
-  const els = await fetchOsm(border);
+  let els: OsmElement[];
+  try {
+    els = await fetchOsm(border);
+  } catch (e) {
+    // Shared CI machines are often rate-limited by the free map servers; that's not a code failure.
+    console.log(`SPOTCHECK skipped: map servers busy (${(e as Error).message})`);
+    return;
+  }
   const t = Date.now();
   const spots = buildSpots(els, border, []);
   const ms = Date.now() - t;
