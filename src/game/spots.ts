@@ -150,8 +150,15 @@ export function buildSpots(elements: OsmElement[], border: LatLng[], noGo: NoGoZ
   return spots;
 }
 
-/** Downloads map data for the game area and returns safe challenge spots. */
-export async function findSpots(border: LatLng[], noGo: NoGoZone[]): Promise<LatLng[]> {
+/** Overpass mirrors (free OpenStreetMap servers). If one is busy, the next one is tried. */
+const SERVERS = [
+  OVERPASS,
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+
+/** Downloads buildings, water, paths, roads and parks for the game area. */
+export async function fetchOsm(border: LatLng[]): Promise<OsmElement[]> {
   const b = bbox(border);
   const box = `${b.s},${b.w},${b.n},${b.e}`;
   const q = `[out:json][timeout:25];(
@@ -163,19 +170,33 @@ export async function findSpots(border: LatLng[], noGo: NoGoZone[]): Promise<Lat
     relation["leisure"="park"](${box});
     way["highway"](${box});
   );out geom;`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 40_000);
-  try {
-    const res = await fetch(OVERPASS, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `data=${encodeURIComponent(q)}`,
-      signal: ctrl.signal,
-    });
-    if (!res.ok) throw new Error(`Map data error ${res.status}`);
-    const json = (await res.json()) as { elements: OsmElement[] };
-    return buildSpots(json.elements ?? [], border, noGo);
-  } finally {
-    clearTimeout(timer);
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < SERVERS.length * 2; attempt++) {
+    const server = SERVERS[attempt % SERVERS.length];
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 35_000);
+    try {
+      const res = await fetch(server, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `data=${encodeURIComponent(q)}`,
+        signal: ctrl.signal,
+      });
+      if (!res.ok) throw new Error(`Map server error ${res.status}`);
+      const json = (await res.json()) as { elements?: OsmElement[] };
+      if (!Array.isArray(json.elements)) throw new Error('Bad map data');
+      return json.elements;
+    } catch (e) {
+      lastError = e;
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  throw lastError ?? new Error('Map data unavailable');
+}
+
+/** Downloads map data for the game area and returns safe challenge spots. */
+export async function findSpots(border: LatLng[], noGo: NoGoZone[]): Promise<LatLng[]> {
+  return buildSpots(await fetchOsm(border), border, noGo);
 }

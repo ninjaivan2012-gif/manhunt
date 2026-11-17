@@ -18,3 +18,5 @@ jobs:
           node-version: 22
       - name: Lake Eola Park, Orlando (lake, buildings, paths)
         run: npx --yes tsx scripts/spots-check.ts 28.5434 -81.3730 350
+      - name: Suburban neighborhood with ponds, Winter Garden FL
+        run: npx --yes tsx scripts/spots-check.ts 28.5653 -81.5862 400
