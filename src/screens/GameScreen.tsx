@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Vibration, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -33,6 +34,26 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
   const [hostPanel, setHostPanel] = useState(false);
   const [ch, setCh] = useState<ChallengeState | null>(null);
   const [perksOpen, setPerksOpen] = useState(false);
+  const [follow, setFollow] = useState(false);
+  const [cardSmall, setCardSmall] = useState(false); // challenge card collapsed
+  const [shopSeen, setShopSeen] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.multiGet(['mh.cardSmall', 'mh.shopSeen'])
+      .then(([[, small], [, seen]]) => { setCardSmall(small === '1'); setShopSeen(seen === '1'); })
+      .catch(() => {});
+  }, []);
+  const toggleCard = () => {
+    setCardSmall((v) => { AsyncStorage.setItem('mh.cardSmall', v ? '0' : '1').catch(() => {}); return !v; });
+  };
+  const openShop = () => {
+    setPerksOpen(true);
+    if (!shopSeen) { setShopSeen(true); AsyncStorage.setItem('mh.shopSeen', '1').catch(() => {}); }
+  };
+  const toggleFollow = () => {
+    if (follow) { setFollow(false); if (myPos) map.current?.northUp(myPos); } // back to north-up
+    else setFollow(true);
+  };
   const [myPerks, setMyPerks] = useState<Perks>({ lives: 0, shieldUntil: 0 });
   const prevLives = useRef(0);
 
@@ -152,7 +173,7 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <GameMap ref={map} initialCenter={myPos ?? center} border={border} nextBorder={nextBorder} noGo={game.noGo} markers={markers} circles={circles} />
+      <GameMap ref={map} initialCenter={myPos ?? center} border={border} nextBorder={nextBorder} noGo={game.noGo} markers={markers} circles={circles} follow={follow} onFollowStop={() => setFollow(false)} />
 
       {/* Top HUD */}
       <View style={[st.top, { top: insets.top + 8 }]}>
@@ -164,7 +185,18 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
           <View style={{ flexDirection: 'row', gap: 8 }}>
             {isHost && <Btn label="HOST" kind="secondary" style={st.smallBtn} onPress={() => setHostPanel(true)} />}
             <ThemeToggle />
-            <Btn label="◎" kind="secondary" style={[st.smallBtn, { width: 44, paddingHorizontal: 0 }]} onPress={() => myPos && map.current?.centerOn(myPos)} />
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityState={{ checked: follow }}
+              accessibilityLabel="Follow me: keep the map on you and turned the way you walk"
+              onPress={toggleFollow}
+              style={[st.followBtn, follow && { backgroundColor: C.fill, borderColor: C.fill }]}
+            >
+              <Svg width={16} height={16} viewBox="0 0 24 24" fill={follow ? C.fillText : 'none'} stroke={follow ? C.fillText : C.red} strokeWidth={2} strokeLinejoin="round">
+                <Path d="M12 2l7 19-7-4-7 4 7-19z" />
+              </Svg>
+              <Text style={{ color: follow ? C.fillText : C.red, fontFamily: F.display, fontSize: 11, letterSpacing: 1 }}>FOLLOW</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -200,7 +232,10 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
             lives={myPerks.lives}
             shielded={shielded ? Math.ceil((myPerks.shieldUntil - now) / 1000) : 0}
             onSkip={skip}
-            onPerks={() => setPerksOpen(true)}
+            onShop={openShop}
+            small={cardSmall}
+            onToggle={toggleCard}
+            showHint={!shopSeen}
           />
         )}
         {trackingOk === false && (
@@ -316,10 +351,12 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
         <View style={st.modalBg}>
           <View style={[st.modal, { paddingBottom: insets.bottom + 16 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={[st.bannerTitle, { flex: 1 }]}>PERKS</Text>
+              <Text style={[st.bannerTitle, { flex: 1 }]}>SHOP</Text>
               <Text style={{ color: C.red, fontFamily: F.monoBold, fontSize: 18 }}>{ch?.points ?? 0} pts</Text>
             </View>
-            <Text style={{ color: C.redDim, fontSize: 13 }}>Earn points by finishing challenges.</Text>
+            <Text style={{ color: C.redSoft, fontSize: 13, lineHeight: 19 }}>
+              Finish challenges to earn points, then buy a perk here. It works on its own: no need to do anything else.
+            </Text>
             {(Object.keys(PERKS) as PerkId[]).map((id) => {
               const p = PERKS[id];
               const owned = id === 'blur' ? ch?.blurNext : id === 'jam' ? ch?.jamNext : myPerks.lives >= 1;
@@ -329,10 +366,11 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text style={{ color: C.white, fontSize: 15, fontWeight: '600' }}>{p.name}</Text>
                     <Text style={{ color: C.redSoft, fontSize: 12, lineHeight: 17 }}>{p.desc}</Text>
+                    {owned && <Text style={{ color: C.red, fontSize: 12 }}>{id === 'life' ? 'Active: saves you from the next tag.' : 'Active: used on your next ping.'}</Text>}
                   </View>
                   {owned
-                    ? <Text style={{ color: C.red, fontFamily: F.mono, fontSize: 12, width: 84, textAlign: 'center' }}>READY</Text>
-                    : <Btn label={`${p.cost} PTS`} kind={canBuy ? 'primary' : 'secondary'} disabled={!canBuy} style={{ height: 44, width: 84, paddingHorizontal: 0 }} onPress={() => buy(id)} />}
+                    ? <Text style={{ color: C.red, fontFamily: F.mono, fontSize: 12, width: 84, textAlign: 'center' }}>ACTIVE</Text>
+                    : <Btn label={`BUY · ${p.cost}`} kind={canBuy ? 'primary' : 'secondary'} disabled={!canBuy} style={{ height: 44, width: 84, paddingHorizontal: 0 }} onPress={() => buy(id)} />}
                 </View>
               );
             })}
@@ -380,22 +418,59 @@ export function GameScreen({ go }: { go: (r: Route) => void }) {
 }
 
 function ChallengeCard(props: {
-  ch: ChallengeState; now: number; lives: number; shielded: number; onSkip: () => void; onPerks: () => void;
+  ch: ChallengeState; now: number; lives: number; shielded: number;
+  onSkip: () => void; onShop: () => void; small: boolean; onToggle: () => void; showHint: boolean;
 }) {
   const { ch, now } = props;
   const a = ch.active;
   const recent = ch.lastResult && now - ch.lastResult.at < 8000 ? ch.lastResult.text : null;
+  const canAfford = ch.points >= PERKS.blur.cost;
+  const status = props.shielded > 0 ? `SHIELD ${props.shielded}s` : props.lives > 0 ? 'EXTRA LIFE' : null;
+
+  const shopBtn = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Shop. You have ${ch.points} points.`}
+      onPress={props.onShop}
+      style={[st.shopBtn, canAfford && { backgroundColor: C.fill, borderColor: C.fill }]}
+    >
+      <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={canAfford ? C.fillText : C.red} strokeWidth={2}>
+        <Path d="M5 8h14l-1 12H6L5 8zM9 8V6a3 3 0 0 1 6 0v2" />
+      </Svg>
+      <Text style={{ color: canAfford ? C.fillText : C.red, fontFamily: F.display, fontSize: 12, letterSpacing: 1 }}>SHOP</Text>
+      <Text style={{ color: canAfford ? C.fillText : C.red, fontFamily: F.monoBold, fontSize: 12 }}>{ch.points}</Text>
+    </Pressable>
+  );
+  const chevron = (
+    <Pressable accessibilityRole="button" accessibilityLabel={props.small ? 'Show challenge' : 'Hide challenge'} onPress={props.onToggle} hitSlop={6} style={st.chevBtn}>
+      <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={C.redSoft} strokeWidth={2}>
+        <Path d={props.small ? 'M6 9l6 6 6-6' : 'M6 15l6-6 6 6'} />
+      </Svg>
+    </Pressable>
+  );
+
+  if (props.small) {
+    return (
+      <View style={[st.banner, { paddingVertical: 6, gap: 8 }]}>
+        <Text style={{ flex: 1, color: C.redSoft, fontSize: 13 }} numberOfLines={1}>
+          {a ? `${describe(a).title} · ${fmtClock(a.deadline - now)}` : recent ?? 'Challenges'}
+          {status ? `  ·  ${status}` : ''}
+        </Text>
+        {shopBtn}
+        {chevron}
+      </View>
+    );
+  }
+
   return (
     <View style={[st.banner, { flexDirection: 'column', alignItems: 'stretch', gap: 6, paddingVertical: 10 }]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Text style={[st.chTag, { flex: 1 }]} numberOfLines={1}>
-          {a ? `CHALLENGE · +${a.reward}` : 'CHALLENGES'}
-          {props.lives > 0 ? '  ·  EXTRA LIFE' : ''}
-          {props.shielded > 0 ? `  ·  SHIELD ${props.shielded}s` : ''}
+          {a ? `CHALLENGE · WORTH ${a.reward} PT${a.reward > 1 ? 'S' : ''}` : 'CHALLENGES'}
+          {status ? `  ·  ${status}` : ''}
         </Text>
-        <Pressable accessibilityRole="button" accessibilityLabel={`Perks, ${ch.points} points`} onPress={props.onPerks} style={st.ptsBtn}>
-          <Text style={{ color: C.red, fontFamily: F.monoBold, fontSize: 13 }}>{ch.points} PTS</Text>
-        </Pressable>
+        {shopBtn}
+        {chevron}
       </View>
       {a ? (
         <>
@@ -414,6 +489,11 @@ function ChallengeCard(props: {
       ) : (
         <Text style={{ color: C.redSoft, fontSize: 13 }}>
           {recent ?? (ch.cooldownUntil > now ? `Next challenge in ${fmtClock(ch.cooldownUntil - now)}` : 'Finding your next challenge…')}
+        </Text>
+      )}
+      {props.showHint && (
+        <Text style={{ color: C.redDim, fontSize: 12, lineHeight: 17 }}>
+          Finish challenges to earn points. Tap SHOP to spend them on perks.
         </Text>
       )}
     </View>
@@ -527,6 +607,9 @@ const st = themed(() => StyleSheet.create({
   bannerClock: { fontFamily: F.monoBold, fontSize: 28, color: C.red },
   warn: { color: C.redSoft, fontSize: 12, lineHeight: 17, backgroundColor: C.sheet, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: C.line },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 12, gap: 12, backgroundColor: C.sheet, borderTopWidth: 1, borderTopColor: C.line, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  shopBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: C.lineStrong },
+  chevBtn: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, borderColor: C.line, alignItems: 'center', justifyContent: 'center' },
+  followBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 40, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: C.lineStrong, backgroundColor: C.bg },
   chTag: { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5, color: C.redDim },
   ptsBtn: { minHeight: 32, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: C.lineStrong, justifyContent: 'center' },
   bar: { flex: 1, height: 5, borderRadius: 3, backgroundColor: C.line, overflow: 'hidden' },

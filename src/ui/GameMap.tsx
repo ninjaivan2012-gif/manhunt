@@ -13,7 +13,7 @@ export type MapMarker = {
   kind: 'ping' | 'teammate' | 'point' | 'goal';
 };
 
-export type GameMapHandle = { centerOn: (p: LatLng, zoom?: number) => void };
+export type GameMapHandle = { centerOn: (p: LatLng, zoom?: number) => void; northUp: (at: LatLng) => void };
 
 type Props = {
   initialCenter: LatLng;
@@ -27,6 +27,10 @@ type Props = {
   /** Small dots, e.g. challenge spots in the setup screen. */
   dots?: LatLng[];
   onPress?: (p: LatLng) => void;
+  /** GPS mode: keep the map centered on you and turned the way you're walking. */
+  follow?: boolean;
+  /** Called when follow mode stops by itself (for example, when you drag the map). */
+  onFollowStop?: () => void;
 };
 
 const polygonFC = (polys: LatLng[][]): GeoJSON.FeatureCollection => ({
@@ -52,6 +56,7 @@ export const GameMap = forwardRef<GameMapHandle, Props>(function GameMap(props, 
   const camera = useRef<CameraRef>(null);
   useImperativeHandle(ref, () => ({
     centerOn: (p, zoom) => camera.current?.easeTo({ center: [p.lng, p.lat], zoom: zoom ?? 16, duration: 600 }),
+    northUp: (at) => camera.current?.easeTo({ center: [at.lng, at.lat], bearing: 0, duration: 400 }),
   }));
 
   const border = props.border ?? [];
@@ -89,7 +94,12 @@ export const GameMap = forwardRef<GameMapHandle, Props>(function GameMap(props, 
         props.onPress?.({ lat, lng });
       }}
     >
-      <Camera ref={camera} initialViewState={{ center: [props.initialCenter.lng, props.initialCenter.lat], zoom: 15.5 }} />
+      <Camera
+        ref={camera}
+        initialViewState={{ center: [props.initialCenter.lng, props.initialCenter.lat], zoom: 15.5 }}
+        trackUserLocation={props.follow ? 'course' : undefined}
+        onTrackUserLocationChange={(e) => { if (props.follow && !e.nativeEvent.trackUserLocation) props.onFollowStop?.(); }}
+      />
 
       <GeoJSONSource id="shade" data={shadeFC}>
         <Layer type="fill" id="shade-fill" style={{ fillColor: '#000000', fillOpacity: C.shadeOpacity }} />
